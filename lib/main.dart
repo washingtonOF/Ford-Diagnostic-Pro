@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'obd_v08.dart' as v08;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
@@ -122,6 +125,14 @@ class _DashboardState extends State<Dashboard> {
   String vin = 'Não consultado';
   bool discovering = false;
   final sessionReadings = <String>[];
+  final List<double> speedSamples = [];
+  final List<double> temperatureSamples = [];
+  DateTime? lastTripSample;
+  double tripKm = 0;
+  double estimatedLiters = 0;
+  double? fuelPercent;
+  double? currentLph;
+  double? currentKml;
   List<String> codes = [];
   final List<v08.DiagnosticCode> allCodes = [];
   final Map<String, String> codeStatuses = {};
@@ -279,6 +290,27 @@ class _DashboardState extends State<Dashboard> {
     if (mounted) setState(() => status = 'Erro na comunicação: $e');
   }
 
+  Future<void> exportPdf() async {
+    try {
+      final doc = pw.Document();
+      final report = <String>[
+        'Ford Diagnostic Pro V0.8 — Relatorio',
+        'Gerado em: ' + DateTime.now().toIso8601String(),
+        'Distancia estimada: ' + tripKm.toStringAsFixed(2) + ' km',
+        'Combustivel estimado: ' + estimatedLiters.toStringAsFixed(2) + ' L',
+        'DTCs: ' + allCodes.map((e) => e.code + ' (' + e.status + ')').join(', '),
+        'Sensores: ' + values.toString(),
+        'Leituras nao substituem diagnostico profissional.',
+      ];
+      doc.addPage(pw.MultiPage(build: (_) => [
+        for (final line in report) pw.Padding(
+          padding: const pw.EdgeInsets.only(bottom: 10),
+          child: pw.Text(line)),
+      ]));
+      await Printing.sharePdf(bytes: await doc.save(), filename: 'ford_diagnostic_v08.pdf');
+    } catch (e) { report(e); }
+  }
+
   Future<void> copyHistory() async {
     if (history.isEmpty) return;
     await Clipboard.setData(ClipboardData(text:
@@ -314,6 +346,36 @@ class _DashboardState extends State<Dashboard> {
         final r = await obd.command('01$pid');
         if (mounted) setState(() => values[pid] = decodePid(pid, r));
       }
+      final now = DateTime.now();
+      final rawSpeed = values['0D'];
+      final speed = rawSpeed == null ? null : double.tryParse(rawSpeed.replaceAll(' km/h', ''));
+      final rawTemp = values['05'];
+      final temp = rawTemp == null ? null : double.tryParse(rawTemp.replaceAll(' °C', ''));
+      if (speed != null) {
+        speedSamples.add(speed);
+        if (speedSamples.length > 60) speedSamples.removeAt(0);
+      }
+      if (temp != null) {
+        temperatureSamples.add(temp);
+        if (temperatureSamples.length > 60) temperatureSamples.removeAt(0);
+      }
+      if (supported.contains('2F')) {
+        fuelPercent = v08.fuelLevelPercent(await obd.command('012F'));
+      }
+      if (supported.contains('10')) {
+        final maf = v08.mafGramsPerSecond(await obd.command('0110'));
+        currentLph = v08.fuelLitersPerHourFromMaf(maf);
+        currentKml = v08.instantaneousKmPerLiter(speed, currentLph);
+      }
+      if (lastTripSample != null && speed != null) {
+        final hours = now.difference(lastTripSample!).inMilliseconds / 3600000.0;
+        if (hours > 0 && hours < 0.02) {
+          tripKm += speed * hours;
+          if (currentLph != null) estimatedLiters += currentLph! * hours;
+        }
+      }
+      lastTripSample = now;
+      if (mounted) setState(() {});
       if (values.isNotEmpty) sessionReadings.add('${DateTime.now().toIso8601String()} ${jsonEncode(values)}');
       if (sessionReadings.length >= 20) { await record('Amostras sensores: ${jsonEncode(sessionReadings)}'); sessionReadings.clear(); }
     } catch (e) { report(e); timer?.cancel(); if (mounted) setState(() => connected = false); }
@@ -726,6 +788,11 @@ class _DashboardState extends State<Dashboard> {
     sectionTitle('Histórico local', Icons.history),
     panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       OutlinedButton.icon(
+        onPressed: exportPdf,
+        icon: const Icon(Icons.picture_as_pdf),
+        label: const Text('Exportar relatório PDF')),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
         onPressed: history.isEmpty ? null : copyHistory,
         icon: const Icon(Icons.copy_all),
         label: const Text('Copiar histórico para exportar')),
@@ -745,6 +812,28 @@ class _DashboardState extends State<Dashboard> {
       'e-mail ou mensagem. Não há envio automático de dados.',
       style: TextStyle(color: Colors.white60, fontSize: 12)),
   ]);
+
+  Widget get tripStats => panel(child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('Estatísticas da sessão', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      Text('Distância: ' + tripKm.toStringAsFixed(2) + ' km'),
+      Text('Combustível (estimado): ' + estimatedLiters.toStringAsFixed(2) + ' L'),
+      Text('Consumo médio: ' + (estimatedLiters > 0 ? (tripKm / estimatedLiters).toStringAsFixed(1) + ' km/L' : 'Indisponível')),
+      Text('Consumo instantâneo: ' + (currentKml == null ? 'Indisponível' : currentKml!.toStringAsFixed(1) + ' km/L')),
+      Text('Nível de combustível: ' + (fuelPercent == null ? 'Indisponível' : fuelPercent!.toStringAsFixed(1) + ' %')),
+      const Text('Estimativas por MAF para gasolina. Não calibrado para etanol/flex.',
+        style: TextStyle(fontSize: 12, color: Colors.amberAccent)),
+      const SizedBox(height: 12),
+      const Text('Velocidade • últimas 60 leituras'),
+      SizedBox(height: 100, child: CustomPaint(
+        painter: _V08LinePainter(speedSamples), child: const SizedBox.expand())),
+      const SizedBox(height: 8),
+      const Text('Temperatura do motor • últimas 60 leituras'),
+      SizedBox(height: 100, child: CustomPaint(
+        painter: _V08LinePainter(temperatureSamples), child: const SizedBox.expand())),
+    ],
+  ));
 
   Widget get v08Shortcuts => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     sectionTitle('Acesso rápido • V0.8', Icons.grid_view_rounded),
@@ -803,7 +892,7 @@ class _DashboardState extends State<Dashboard> {
       key: ValueKey('tela_$selectedTab'),
       padding: const EdgeInsets.all(16),
       children: [
-      if (selectedTab == 0) ...[v08Shortcuts, overview],
+      if (selectedTab == 0) ...[v08Shortcuts, overview, tripStats],
       if (selectedTab == 1) connectionPanel,
       if (selectedTab == 2) diagnostics,
       if (selectedTab == 3) historyView,
@@ -827,3 +916,25 @@ class _DashboardState extends State<Dashboard> {
   );
 }
 
+
+class _V08LinePainter extends CustomPainter {
+  final List<double> data;
+  _V08LinePainter(this.data);
+  @override void paint(Canvas canvas, Size size) {
+    if (data.length < 2) return;
+    final minVal = data.reduce(math.min);
+    final maxVal = data.reduce(math.max);
+    final range = math.max(1.0, maxVal - minVal);
+    final path = Path();
+    for (var i = 0; i < data.length; i++) {
+      final x = size.width * i / (data.length - 1);
+      final y = size.height - ((data[i] - minVal) / range * (size.height - 8)) - 4;
+      if (i == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
+    }
+    canvas.drawPath(path, Paint()
+      ..color = const Color(0xFF42CFFF)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke);
+  }
+  @override bool shouldRepaint(covariant _V08LinePainter oldDelegate) => true;
+}
