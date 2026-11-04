@@ -26,8 +26,8 @@ List<int> _elmBytes(String rawLine) {
   var line = rawLine.trim().toUpperCase();
   if (line.isEmpty || line.contains('NO DATA') || line.contains('SEARCHING') ||
       line.contains('STOPPED') || line.contains('ERROR') || line == '?') return [];
-  line = line.replaceFirst(RegExp(r'^\\d+:\\s*'), '');
-  final parts = line.split(RegExp(r'\\s+'));
+  line = line.replaceFirst(RegExp(r'^\d+:\s*'), '');
+  final parts = line.split(RegExp(r'\s+'));
   if (parts.isNotEmpty && RegExp(r'^[0-9A-F]{3}$|^[0-9A-F]{8}$').hasMatch(parts.first)) {
     parts.removeAt(0); // CAN header, e.g. 7E8 or 18DAF110
   }
@@ -51,7 +51,7 @@ List<DiagnosticCode> parseDtcResponse(String raw, String mode) {
   if (service == null) throw ArgumentError.value(mode, 'mode');
   final status = {'03': 'Confirmado', '07': 'Pendente', '0A': 'Permanente'}[mode]!;
   final found = <String>{};
-  for (final line in raw.split(RegExp(r'[\\r\\n>]+'))) {
+  for (final line in raw.split(RegExp(r'[\r\n>]+'))) {
     final bytes = _elmBytes(line);
     if (bytes.isEmpty) continue;
     final start = bytes.indexOf(service);
@@ -71,7 +71,7 @@ List<DiagnosticCode> parseDtcResponse(String raw, String mode) {
 }
 
 List<int>? _pidData(String raw, int pid, int length) {
-  for (final line in raw.split(RegExp(r'[\\r\\n>]+'))) {
+  for (final line in raw.split(RegExp(r'[\r\n>]+'))) {
     final bytes = _elmBytes(line);
     for (var i = 0; i + 1 + length < bytes.length; i++) {
       if (bytes[i] == 0x41 && bytes[i + 1] == pid) {
