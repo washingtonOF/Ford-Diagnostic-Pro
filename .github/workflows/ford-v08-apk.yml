@@ -1,0 +1,36 @@
+name: Ford Diagnostic Pro V0.8 - Testes e APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/ford-v08-apk.yml'
+permissions:
+  contents: read
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Tests
+        run: flutter test
+      - name: Build debug APK
+        run: flutter build apk --debug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ford-Diagnostic-Pro-V08-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
