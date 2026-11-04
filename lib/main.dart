@@ -19,7 +19,14 @@ class ObdService {
       (await _channel.invokeMethod<String>('command', {'command': cmd})) ?? '';
   Future<void> initialize() async {
     for (final cmd in ['ATZ', 'ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0']) {
-      await command(cmd);
+      final response = (await command(cmd)).toUpperCase();
+      if (response.contains('?') || response.contains('ERROR')) {
+        throw StateError('ELM327 rejeitou $cmd: $response');
+      }
+    }
+    final response = (await command('0100')).toUpperCase();
+    if (!response.contains('41')) {
+      throw StateError('ELM327 respondeu, mas o veículo não retornou dados OBD-II: $response');
     }
   }
 }
@@ -116,6 +123,7 @@ class _DashboardState extends State<Dashboard> {
   bool discovering = false;
   final sessionReadings = <String>[];
   List<String> codes = [];
+  final List<v08.DiagnosticCode> allCodes = [];
   final Map<String, String> codeStatuses = {};
   int selectedTab = 0;
   bool editingPanel = false;
@@ -250,8 +258,13 @@ class _DashboardState extends State<Dashboard> {
     setState(() => busy = true);
     try {
       final response = await obd.command(mode);
-      await record('$label: ${response.trim()}');
-      if (mounted) setState(() => status = '$label consultado; resposta salva no histórico');
+      final parsed = v08.parseDtcResponse(response, mode);
+      await record('$label: ${parsed.map((e) => e.code).join(', ')} | bruto: ${response.trim()}');
+      if (mounted) setState(() {
+        allCodes.removeWhere((e) => e.status == (mode == '07' ? 'Pendente' : 'Permanente'));
+        allCodes.addAll(parsed);
+        status = '$label consultadas: ${parsed.length} código(s)';
+      });
     } catch (e) { report(e); }
     finally { if (mounted) setState(() => busy = false); }
   }
@@ -285,6 +298,7 @@ class _DashboardState extends State<Dashboard> {
       if (!mounted) return;
       setState(() { connected = true; status = 'Conectado'; });
       timer?.cancel();
+      setState(() => busy = false);
       await discover();
       await poll();
       timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
@@ -313,6 +327,8 @@ class _DashboardState extends State<Dashboard> {
       final found = v08.parseDtcResponse(r, '03').map((e) => e.code).toList();
       if (mounted) setState(() {
         codes = found;
+        allCodes.removeWhere((e) => e.status == 'Confirmado');
+        allCodes.addAll(v08.parseDtcResponse(r, '03'));
         for (final code in found) { codeStatuses[code] = 'Confirmado'; }
 
       });
@@ -602,15 +618,15 @@ class _DashboardState extends State<Dashboard> {
         onPressed: connected && !busy && !polling && !discovering ? readCodes : null,
         icon: const Icon(Icons.manage_search), label: const Text('Ler falhas confirmadas (03)')),
       const SizedBox(height: 12),
-      if (codes.isEmpty) const Text('Nenhum código exibido. Execute a leitura para consultar.'),
-      for (final code in codes) ListTile(
+      if (allCodes.isEmpty) const Text('Nenhum código exibido. Execute a leitura para consultar.'),
+      for (final entry in allCodes) ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
-        title: Text(code),
-        subtitle: Text('${v08.descriptionForDtc(code)} • ${codeStatuses[code] ?? 'Confirmado'}'),
+        title: Text(entry.code),
+        subtitle: Text('${entry.description} • ${entry.status} • Módulo OBD-II genérico'),
         trailing: const Icon(Icons.copy),
         onTap: () async {
-          await Clipboard.setData(ClipboardData(text: v08.DiagnosticCode(code, 'Confirmado', '').googleUrl));
+          await Clipboard.setData(ClipboardData(text: entry.googleUrl));
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link de pesquisa copiado')));
         },
       ),
@@ -626,7 +642,7 @@ class _DashboardState extends State<Dashboard> {
           child: const Text('Permanentes (0A)')),
       ]),
       const SizedBox(height: 8),
-      const Text('As respostas dos modos 07 e 0A são guardadas em formato bruto no histórico.',
+      const Text('Códigos 03, 07 e 0A exibidos e armazenados. Acesso aprimorado ao TCM ainda não disponível.',
         style: TextStyle(color: Colors.white60, fontSize: 12)),
     ])),
     sectionTitle('PowerShift DPS6 / TCM', Icons.settings),
