@@ -63,7 +63,6 @@ class MainActivity : FlutterActivity() {
                         socket?.close()
                         val device = adapter()?.getRemoteDevice(address) ?: error("Bluetooth indisponível")
                         // Sem varredura: conexao com dispositivo ja pareado
-                        adapter()?.cancelDiscovery()
                         try {
                             socket = device.createRfcommSocketToServiceRecord(uuid)
                             socket!!.connect()
@@ -97,7 +96,7 @@ class MainActivity : FlutterActivity() {
         output.write("$command\r".toByteArray(Charsets.US_ASCII))
         output.flush()
         val sb = StringBuilder()
-        val deadline = System.currentTimeMillis() + if (command == "ATZ") 6500 else 6500
+        val deadline = System.currentTimeMillis() + 6500
         while (System.currentTimeMillis() < deadline) {
             if (input.available() > 0) {
                 val c = input.read()
