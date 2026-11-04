@@ -133,6 +133,7 @@ class _DashboardState extends State<Dashboard> {
   double? fuelPercent;
   double? currentLph;
   double? currentKml;
+  v08.FuelType fuelType = v08.FuelType.gasoline;
   List<String> codes = [];
   final List<v08.DiagnosticCode> allCodes = [];
   final Map<String, String> codeStatuses = {};
@@ -364,7 +365,7 @@ class _DashboardState extends State<Dashboard> {
       }
       if (supported.contains('10')) {
         final maf = v08.mafGramsPerSecond(await obd.command('0110'));
-        currentLph = v08.fuelLitersPerHourFromMaf(maf);
+        currentLph = v08.fuelLitersPerHour(maf, fuelType);
         currentKml = v08.instantaneousKmPerLiter(speed, currentLph);
       }
       if (lastTripSample != null && speed != null) {
@@ -822,7 +823,15 @@ class _DashboardState extends State<Dashboard> {
       Text('Consumo médio: ' + (estimatedLiters > 0 ? (tripKm / estimatedLiters).toStringAsFixed(1) + ' km/L' : 'Indisponível')),
       Text('Consumo instantâneo: ' + (currentKml == null ? 'Indisponível' : currentKml!.toStringAsFixed(1) + ' km/L')),
       Text('Nível de combustível: ' + (fuelPercent == null ? 'Indisponível' : fuelPercent!.toStringAsFixed(1) + ' %')),
-      const Text('Estimativas por MAF para gasolina. Não calibrado para etanol/flex.',
+      DropdownButton<v08.FuelType>(
+        value: fuelType,
+        items: const [
+          DropdownMenuItem(value: v08.FuelType.gasoline, child: Text('Gasolina')),
+          DropdownMenuItem(value: v08.FuelType.ethanol, child: Text('Etanol')),
+        ],
+        onChanged: (value) { if (value != null) setState(() { fuelType = value; currentLph = null; currentKml = null; lastTripSample = null; }); },
+      ),
+      const Text('Consumo estimado pelo MAF, não calibrado para misturas flex ou enriquecimento.',
         style: TextStyle(fontSize: 12, color: Colors.amberAccent)),
       const SizedBox(height: 12),
       const Text('Velocidade • últimas 60 leituras'),
