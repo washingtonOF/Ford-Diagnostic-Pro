@@ -360,13 +360,15 @@ class _DashboardState extends State<Dashboard> {
         temperatureSamples.add(temp);
         if (temperatureSamples.length > 60) temperatureSamples.removeAt(0);
       }
-      if (supported.contains('2F')) {
-        fuelPercent = v08.fuelLevelPercent(await obd.command('012F'));
-      }
+      fuelPercent = supported.contains('2F')
+          ? v08.fuelLevelPercent(await obd.command('012F')) : null;
       if (supported.contains('10')) {
         final maf = v08.mafGramsPerSecond(await obd.command('0110'));
         currentLph = v08.fuelLitersPerHour(maf, fuelType);
         currentKml = v08.instantaneousKmPerLiter(speed, currentLph);
+      } else {
+        currentLph = null;
+        currentKml = null;
       }
       if (lastTripSample != null && speed != null) {
         final hours = now.difference(lastTripSample!).inMilliseconds / 3600000.0;
@@ -876,14 +878,14 @@ class _DashboardState extends State<Dashboard> {
       ]);
     }),
     sectionTitle('Indicadores adicionais • V0.8', Icons.analytics_outlined),
-    panel(child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Combustível: indisponível • leitura PID 012F pendente'),
-      SizedBox(height: 6),
-      Text('Distância percorrida: indisponível • sessão não iniciada'),
-      SizedBox(height: 6),
-      Text('Consumo médio e instantâneo: indisponível • calibração pendente'),
-      SizedBox(height: 6),
-      Text('Temperatura PowerShift: indisponível • PID do TCM não validado',
+    panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Combustível: ' + (connected && fuelPercent != null ? fuelPercent!.toStringAsFixed(1) + ' %' : 'Indisponível')),
+      const SizedBox(height: 6),
+      Text('Distância percorrida: ' + (connected ? tripKm.toStringAsFixed(2) + ' km (estimada)' : 'Indisponível')),
+      const SizedBox(height: 6),
+      Text('Consumo instantâneo: ' + (connected && currentKml != null ? currentKml!.toStringAsFixed(1) + ' km/L (estimado)' : 'Indisponível')),
+      const SizedBox(height: 6),
+      const Text('Temperatura PowerShift: indisponível • PID do TCM não validado',
         style: TextStyle(color: Colors.amberAccent)),
     ])),
   ]);
