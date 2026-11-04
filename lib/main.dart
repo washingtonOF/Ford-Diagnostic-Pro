@@ -580,7 +580,7 @@ class _DashboardState extends State<Dashboard> {
     ])),
     sectionTitle('Sobre o diagnóstico', Icons.info_outline),
     panel(child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Ford Diagnostic Pro V0.7 • Em desenvolvimento',
+      Text('Ford Diagnostic Pro V0.8 • Em desenvolvimento',
         style: TextStyle(fontWeight: FontWeight.bold)),
       SizedBox(height: 8),
       Text('Acesso OBD2 genérico de leitura. Funções Ford aprimoradas, '
@@ -664,6 +664,50 @@ class _DashboardState extends State<Dashboard> {
       style: TextStyle(color: Colors.white60, fontSize: 12)),
   ]);
 
+  Widget get v08Shortcuts => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    sectionTitle('Acesso rápido • V0.8', Icons.grid_view_rounded),
+    LayoutBuilder(builder: (context, c) {
+      final w = (c.maxWidth - 12) / 2;
+      final items = <(String, IconData, int)>[
+        ('Conectar ELM327', Icons.bluetooth_connected, 1),
+        ('Códigos de falha', Icons.car_repair, 2),
+        ('Sensores em tempo real', Icons.monitor_heart, 0),
+        ('Módulos Ford', Icons.memory, 2),
+        ('Estatísticas de viagem', Icons.route, 0),
+        ('Histórico e relatórios', Icons.description_outlined, 3),
+      ];
+      return Wrap(spacing: 12, runSpacing: 12, children: [
+        for (final item in items) SizedBox(width: w, child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => setState(() => selectedTab = item.$3),
+          child: Container(
+            height: 116, padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF172840),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFF295C8D))),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(item.$2, color: const Color(0xFF42CFFF), size: 30),
+              const Spacer(),
+              Text(item.$1, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        )),
+      ]);
+    }),
+    sectionTitle('Indicadores adicionais • V0.8', Icons.analytics_outlined),
+    panel(child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Combustível: indisponível • leitura PID 012F pendente'),
+      SizedBox(height: 6),
+      Text('Distância percorrida: indisponível • sessão não iniciada'),
+      SizedBox(height: 6),
+      Text('Consumo médio e instantâneo: indisponível • calibração pendente'),
+      SizedBox(height: 6),
+      Text('Temperatura PowerShift: indisponível • PID do TCM não validado',
+        style: TextStyle(color: Colors.amberAccent)),
+    ])),
+  ]);
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -677,13 +721,13 @@ class _DashboardState extends State<Dashboard> {
       key: ValueKey('tela_$selectedTab'),
       padding: const EdgeInsets.all(16),
       children: [
-      if (selectedTab == 0) overview,
+      if (selectedTab == 0) ...[v08Shortcuts, overview],
       if (selectedTab == 1) connectionPanel,
       if (selectedTab == 2) diagnostics,
       if (selectedTab == 3) historyView,
       if (selectedTab == 4) settingsView,
       const SizedBox(height: 18),
-      const Text('V0.7 • LAYOUT COMPLETO • SOMENTE LEITURA\n'
+      const Text('V0.8 • PRÉVIA DE LAYOUT • SOMENTE LEITURA\n'
         'Apagamento de falhas, testes ativos, adaptações e programação bloqueados.',
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white54, fontSize: 11)),
