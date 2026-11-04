@@ -1,21 +1,23 @@
-# Ford Diagnostic Pro V0.8 — publicações incrementais
+# Ford Diagnostic Pro V0.8 — estado real (04/11/2026)
 
-## Publicado no GitHub
-- lib/main.dart: atalhos de painel, indicadores em estado indisponível, descrições de DTC confirmados.
-- lib/obd_v08.dart: decodificação genérica de DTC 03/07/0A, nível de combustível e estimativas por MAF.
-- test/obd_v08_test.dart: testes iniciais de interpretação e cálculo.
-- .github/workflows/ford-v08-apk.yml: testes e compilação APK debug.
-- docs/design_v08/dashboard_preview.svg e splash_preview.svg: referências visuais.
-- assets/images/ford_diagnostic_banner.png: banner já existente preservado.
+## Código publicado na branch main
+- pubspec.yaml versão 0.8.0+8, dependências pdf e printing.
+- lib/main.dart: painel de atalhos, banner existente, lista de falhas 03/07/0A, descrição e cópia de pesquisa Google, limpeza genérica 04 com confirmação e releitura, descoberta PIDs, estatísticas de viagem e gráficos de 60 leituras, exportação PDF.
+- lib/obd_v08.dart: decodificação genérica DTC e funções de combustível/MAF.
+- android/app/src/main/kotlin/br/com/forddiagnosticpro/app/MainActivity.kt: RFCOMM Bluetooth pareado, comando 04 permitido e timeout aumentado.
+- test/obd_v08_test.dart: testes básicos.
+- .github/workflows/ford-v08-apk.yml: testes e build APK debug com artifact.
+- docs/design_v08/*.svg: duas imagens conceituais; assets/images/ford_diagnostic_banner.png: imagem real existente preservada.
 
-## Ainda não publicado/integrado
-- Correções nativas de Bluetooth ELM327 e comando 04 com confirmação.
-- Interface de leitura dos modos 07 e 0A (módulo parser publicado, integração UI pendente).
-- Cálculo contínuo de distância e consumo em sessões reais; calibração para gasolina/etanol.
-- Gráficos e estatísticas completas de viagem.
-- Exportação PDF.
-- Temperatura do PowerShift e DTCs aprimorados do TCM (requerem identificação e validação do protocolo).
-- Imagens PNG de prévia e ícone definitivo do pacote local (somente SVGs de referência estão no GitHub).
-- Testes reais no Fiesta e confirmação de build APK.
+## Pendências e limitações
+- Build e testes automatizados: workflow enviado, execução/conclusão ainda não verificadas. NÃO há APK validado.
+- Teste Bluetooth e leitura/limpeza reais no Fiesta: exige aparelho Android, ELM327 e carro.
+- Parser CAN: necessita validar ISO-TP, quadros multi-linha e headers; resultados de DTC não devem ser usados como diagnóstico definitivo sem confirmação.
+- Temperatura da transmissão PowerShift e DTCs aprimorados TCM: não implementados. Sem PID Ford validado, exibir indisponível.
+- Consumo por MAF é aproximação para gasolina e precisa de calibração para etanol/flex; distância é integrada das amostras de velocidade e pode perder trechos.
+- Imagens de referência SVG publicadas; os PNGs conceituais de dez telas e ícone definitivo ainda não foram incorporados aos assets de execução.
+- A pesquisa Google é copiada para a área de transferência, não aberta diretamente.
+- O comando 04 não é equivalente a limpar falhas específicas do TCM; apaga monitores readiness/freeze frame. Use apenas parado, com confirmação.
 
-**Aviso:** imagens conceituais não são capturas do APK; sensores não suportados não devem exibir números fictícios. O comando genérico 04 limpa informações de diagnóstico e readiness, requer confirmação explícita e validação em veículo parado.
+## Como obter APK quando workflow concluir
+Abra GitHub > Actions > Ford Diagnostic Pro V0.8 - Testes e APK > execução concluída > Artifacts > Ford-Diagnostic-Pro-V08-debug.
