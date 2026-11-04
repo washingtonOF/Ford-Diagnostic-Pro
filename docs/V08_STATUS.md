@@ -21,3 +21,8 @@
 
 ## Como obter APK quando workflow concluir
 Abra GitHub > Actions > Ford Diagnostic Pro V0.8 - Testes e APK > execução concluída > Artifacts > Ford-Diagnostic-Pro-V08-debug.
+
+## Atualização incremental de indicadores
+- Painel agora apresenta nível de combustível, distância e consumo quando dados válidos estão disponíveis; caso contrário indica indisponível.
+- A seleção gasolina/etanol modifica a estimativa MAF, mas não substitui calibração real nem cobre misturas flex.
+- O workflow inclui flutter analyze, flutter test e flutter build apk --debug; o resultado de execução ainda não foi confirmado nesta conversa.
