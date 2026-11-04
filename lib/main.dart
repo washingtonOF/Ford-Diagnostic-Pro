@@ -336,6 +336,53 @@ class _DashboardState extends State<Dashboard> {
     } catch (e) { report(e); }
     finally { if (mounted) setState(() => busy = false); }
   }
+  Future<void> clearGenericCodes() async {
+    if (!connected || busy || polling || discovering) return;
+    timer?.cancel();
+    setState(() => busy = true);
+    try {
+      final rawSpeed = await obd.command('010D');
+      final data = obdData(rawSpeed, '41', '0D');
+      if (data == null || byteAt(data, 0) != 0) {
+        throw StateError('Limpeza bloqueada: velocidade zero não confirmada.');
+      }
+      if (!mounted) return;
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Apagar falhas genéricas?'),
+          content: const Text('O comando OBD-II 04 apaga falhas genéricas, dados congelados e monitores de prontidão. '
+            'Não corrige defeitos nem garante limpar o TCM. Faça somente com veículo parado, '
+            'ignição ligada e motor desligado quando indicado. Confirmar?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmar limpeza')),
+          ],
+        ),
+      );
+      if (approved != true) return;
+      final response = (await obd.command('04')).toUpperCase();
+      await record('Modo 04: ' + response);
+      if (!response.contains('44')) {
+        throw StateError('Resposta 04 não confirmada: ' + response);
+      }
+      final reread = await obd.command('03');
+      final remaining = v08.parseDtcResponse(reread, '03');
+      if (mounted) setState(() {
+        allCodes.removeWhere((e) => e.status == 'Confirmado');
+        allCodes.addAll(remaining);
+        codes = remaining.map((e) => e.code).toList();
+        status = remaining.isEmpty ? 'Limpeza confirmada; sem DTC confirmado no modo 03'
+            : 'Limpeza confirmada; códigos ainda presentes: ' + remaining.length.toString();
+      });
+      await record('Releitura 03: ' + reread);
+    } catch (e) { report(e); }
+    finally {
+      if (mounted) setState(() => busy = false);
+      if (connected) timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
+    }
+  }
+
   Future<void> disconnect() async {
     timer?.cancel();
     if (sessionReadings.isNotEmpty) { await record('Amostras sensores: ${jsonEncode(sessionReadings)}'); sessionReadings.clear(); }
@@ -642,6 +689,12 @@ class _DashboardState extends State<Dashboard> {
           child: const Text('Permanentes (0A)')),
       ]),
       const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: connected && !busy && !polling && !discovering ? clearGenericCodes : null,
+        icon: const Icon(Icons.delete_outline),
+        label: const Text('Apagar falhas genéricas (04)'),
+      ),
+      const SizedBox(height: 8),
       const Text('Códigos 03, 07 e 0A exibidos e armazenados. Acesso aprimorado ao TCM ainda não disponível.',
         style: TextStyle(color: Colors.white60, fontSize: 12)),
     ])),
@@ -757,7 +810,7 @@ class _DashboardState extends State<Dashboard> {
       if (selectedTab == 4) settingsView,
       const SizedBox(height: 18),
       const Text('V0.8 • PRÉVIA DE LAYOUT • SOMENTE LEITURA\n'
-        'Apagamento de falhas, testes ativos, adaptações e programação bloqueados.',
+        'Limpeza genérica 04 com confirmação; testes ativos, adaptações e programação bloqueados.',
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white54, fontSize: 11)),
     ]),
