@@ -19,34 +19,45 @@ const dtcDescriptionsPt = <String, String>{
 String descriptionForDtc(String code) =>
     dtcDescriptionsPt[code] ?? 'Descrição não cadastrada. Consulte a documentação técnica.';
 
-/// Aceita quadros com bytes separados ou compactos, sem inferir módulos Ford.
-/// O parser não substitui uma implementação ISO-TP completa.
+/// Extrai bytes de respostas ELM327 sem confundir eco, cabeçalho CAN
+/// ou índice de linha com dados. Quadros ISO-TP segmentados não são
+/// reconstruídos aqui; não interpreta payloads incompletos.
+List<int> _elmBytes(String rawLine) {
+  var line = rawLine.trim().toUpperCase();
+  if (line.isEmpty || line.contains('NO DATA') || line.contains('SEARCHING') ||
+      line.contains('STOPPED') || line.contains('ERROR') || line == '?') return [];
+  line = line.replaceFirst(RegExp(r'^\\d+:\\s*'), '');
+  final parts = line.split(RegExp(r'\\s+'));
+  if (parts.isNotEmpty && RegExp(r'^[0-9A-F]{3}$|^[0-9A-F]{8}$').hasMatch(parts.first)) {
+    parts.removeAt(0); // CAN header, e.g. 7E8 or 18DAF110
+  }
+  final hex = parts.join();
+  if (hex.isEmpty || hex.length.isOdd || !RegExp(r'^[0-9A-F]+$').hasMatch(hex)) return [];
+  final bytes = <int>[];
+  for (var i = 0; i < hex.length; i += 2) {
+    bytes.add(int.parse(hex.substring(i, i + 2), radix: 16));
+  }
+  // CAN ISO-TP single frame: 04 43 01 33 00
+  if (bytes.length > 2 && bytes[0] <= 7 && bytes[1] >= 0x40 && bytes[1] <= 0x4F) {
+    final length = bytes[0];
+    if (length == 0 || length > bytes.length - 1) return [];
+    return bytes.sublist(1, length + 1);
+  }
+  return bytes;
+}
+
 List<DiagnosticCode> parseDtcResponse(String raw, String mode) {
   final service = {'03': 0x43, '07': 0x47, '0A': 0x4A}[mode];
   if (service == null) throw ArgumentError.value(mode, 'mode');
   final status = {'03': 'Confirmado', '07': 'Pendente', '0A': 'Permanente'}[mode]!;
   final found = <String>{};
-  for (var line in raw.toUpperCase().split(RegExp(r'[\r\n>]+'))) {
-    line = line.trim();
-    if (line.isEmpty || line.contains('NO DATA') || line.contains('SEARCHING') ||
-        line.contains('STOPPED') || line.contains('ERROR') || line == '?') continue;
-    final tokens = line.split(RegExp(r'\s+'));
-    final bytes = <int>[];
-    if (tokens.length == 1 && RegExp(r'^[0-9A-F]+$').hasMatch(tokens.first) &&
-        tokens.first.length.isEven) {
-      final hex = tokens.first;
-      for (var i = 0; i < hex.length; i += 2) {
-        bytes.add(int.parse(hex.substring(i, i + 2), radix: 16));
-      }
-    } else {
-      for (final token in tokens) {
-        if (RegExp(r'^[0-9A-F]{2}$').hasMatch(token)) {
-          bytes.add(int.parse(token, radix: 16));
-        }
-      }
-    }
+  for (final line in raw.split(RegExp(r'[\\r\\n>]+'))) {
+    final bytes = _elmBytes(line);
+    if (bytes.isEmpty) continue;
     final start = bytes.indexOf(service);
     if (start < 0) continue;
+    // Do not decode multi-frame ISO-TP as individual DTCs.
+    if (bytes[0] >= 0x10 && bytes[0] <= 0x2F && start > 0) continue;
     for (var i = start + 1; i + 1 < bytes.length; i += 2) {
       final word = bytes[i] * 256 + bytes[i + 1];
       if (word == 0) continue;
@@ -58,17 +69,25 @@ List<DiagnosticCode> parseDtcResponse(String raw, String mode) {
   }
   return found.map((code) => DiagnosticCode(code, status, descriptionForDtc(code))).toList();
 }
+
+List<int>? _pidData(String raw, int pid, int length) {
+  for (final line in raw.split(RegExp(r'[\\r\\n>]+'))) {
+    final bytes = _elmBytes(line);
+    for (var i = 0; i + 1 + length < bytes.length; i++) {
+      if (bytes[i] == 0x41 && bytes[i + 1] == pid) {
+        return bytes.sublist(i + 2, i + 2 + length);
+      }
+    }
+  }
+  return null;
+}
 double? fuelLevelPercent(String raw) {
-  final match = RegExp(r'41\s*2F\s*([0-9A-F]{2})', caseSensitive: false).firstMatch(raw);
-  if (match == null) return null;
-  return int.parse(match.group(1)!, radix: 16) * 100 / 255;
+  final data = _pidData(raw, 0x2F, 1);
+  return data == null ? null : data[0] * 100 / 255;
 }
 double? mafGramsPerSecond(String raw) {
-  final match = RegExp(r'41\s*10\s*([0-9A-F]{2})\s*([0-9A-F]{2})', caseSensitive: false).firstMatch(raw);
-  if (match == null) return null;
-  final a = int.parse(match.group(1)!, radix: 16);
-  final b = int.parse(match.group(2)!, radix: 16);
-  return (a * 256 + b) / 100;
+  final data = _pidData(raw, 0x10, 2);
+  return data == null ? null : (data[0] * 256 + data[1]) / 100;
 }
 /// Aproximação para gasolina: AFR estequiométrica 14,7; densidade 745 g/L.
 /// Não é válida para etanol puro ou condições não estequiométricas.
