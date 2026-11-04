@@ -412,6 +412,13 @@ class _DashboardState extends State<Dashboard> {
       if (data == null || byteAt(data, 0) != 0) {
         throw StateError('Limpeza bloqueada: velocidade zero não confirmada.');
       }
+      final rpmRaw = await obd.command('010C');
+      final rpmData = obdData(rpmRaw, '41', '0C');
+      final rpmA = rpmData == null ? null : byteAt(rpmData, 0);
+      final rpmB = rpmData == null ? null : byteAt(rpmData, 2);
+      if (rpmA == null || rpmB == null || rpmA * 256 + rpmB != 0) {
+        throw StateError('Limpeza bloqueada: motor desligado não confirmado pelo RPM.');
+      }
       if (!mounted) return;
       final approved = await showDialog<bool>(
         context: context,
