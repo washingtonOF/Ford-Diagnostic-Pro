@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'obd_v08.dart' as v08;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
@@ -115,6 +116,7 @@ class _DashboardState extends State<Dashboard> {
   bool discovering = false;
   final sessionReadings = <String>[];
   List<String> codes = [];
+  final Map<String, String> codeStatuses = {};
   int selectedTab = 0;
   bool editingPanel = false;
   bool showVehicleBanner = true;
@@ -308,9 +310,10 @@ class _DashboardState extends State<Dashboard> {
     setState(() => busy = true);
     try {
       final r = await obd.command('03');
-      final found = decodeDtc(r);
+      final found = v08.parseDtcResponse(r, '03').map((e) => e.code).toList();
       if (mounted) setState(() {
         codes = found;
+        for (final code in found) { codeStatuses[code] = 'Confirmado'; }
 
       });
       await record('Falhas confirmadas modo 03: ${found.isEmpty ? 'Nenhuma retornada' : found.join(', ')} | bruto: $r');
@@ -599,8 +602,18 @@ class _DashboardState extends State<Dashboard> {
         onPressed: connected && !busy && !polling && !discovering ? readCodes : null,
         icon: const Icon(Icons.manage_search), label: const Text('Ler falhas confirmadas (03)')),
       const SizedBox(height: 12),
-      Text(codes.isEmpty ? 'Nenhum código exibido. Execute a leitura para consultar.'
-        : 'Códigos retornados: ${codes.join(', ')}'),
+      if (codes.isEmpty) const Text('Nenhum código exibido. Execute a leitura para consultar.'),
+      for (final code in codes) ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+        title: Text(code),
+        subtitle: Text('${v08.descriptionForDtc(code)} • ${codeStatuses[code] ?? 'Confirmado'}'),
+        trailing: const Icon(Icons.copy),
+        onTap: () async {
+          await Clipboard.setData(ClipboardData(text: v08.DiagnosticCode(code, 'Confirmado', '').googleUrl));
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link de pesquisa copiado')));
+        },
+      ),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         OutlinedButton(
