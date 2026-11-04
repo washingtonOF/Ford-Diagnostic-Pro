@@ -7,6 +7,16 @@ void main() {
     expect(codes.map((c) => c.code), containsAll(['P0805', 'P2872']));
     expect(codes.first.status, 'Confirmado');
   });
+  test('DTC com header CAN e frame curto', () {
+    expect(parseDtcResponse('7E8 04 43 08 05 00', '03').first.code, 'P0805');
+  });
+  test('DTC compacto sem espacos', () {
+    expect(parseDtcResponse('4308050000', '03').first.code, 'P0805');
+  });
+  test('PID compactos e CAN', () {
+    expect(fuelLevelPercent('412FFF'), closeTo(100, 0.001));
+    expect(mafGramsPerSecond('7E8 04 41 10 01 F4'), 5);
+  });
   test('DTC pendente e permanente', () {
     expect(parseDtcResponse('47 08 05', '07').first.status, 'Pendente');
     expect(parseDtcResponse('4A 08 05', '0A').first.status, 'Permanente');
