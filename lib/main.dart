@@ -203,6 +203,7 @@ class _DashboardState extends State<Dashboard> {
   void moveSensor(int oldIndex, int newIndex) {
     setState(() {
       
+      if (newIndex > oldIndex) newIndex--;
       final item = sensorOrder.removeAt(oldIndex);
       sensorOrder.insert(newIndex, item);
     });
@@ -316,7 +317,7 @@ class _DashboardState extends State<Dashboard> {
   Future<void> copyHistory() async {
     if (history.isEmpty) return;
     await Clipboard.setData(ClipboardData(text:
-      'Ford Diagnostic Pro V0.6 - histórico de diagnóstico\n'
+      'Ford Diagnostic Pro V0.8 - histórico de diagnóstico\n'
       '${history.join('\n')}'));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -576,7 +577,7 @@ class _DashboardState extends State<Dashboard> {
           buildDefaultDragHandles: false,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: sensorOrder.length,
-          onReorderItem: moveSensor,
+          onReorder: moveSensor,
           itemBuilder: (context, index) {
             final pid = sensorOrder[index];
             return Card(
@@ -935,7 +936,7 @@ class _DashboardState extends State<Dashboard> {
       if (selectedTab == 3) historyView,
       if (selectedTab == 4) settingsView,
       const SizedBox(height: 18),
-      const Text('V0.8 • PRÉVIA DE LAYOUT • SOMENTE LEITURA\n'
+      const Text('V0.8 • DIAGNÓSTICO OBD-II GENÉRICO\n'
         'Limpeza genérica 04 com confirmação; testes ativos, adaptações e programação bloqueados.',
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white54, fontSize: 11)),
