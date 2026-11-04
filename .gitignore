@@ -1,0 +1,57 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+*.iml
+.idea/
+.vscode/*.log
+# Android / signing
+android/.gradle/
+android/local.properties
+android/key.properties
+*.jks
+*.keystore
+# System
+.DS_Store
+Thumbs.db
+
+# Backups e arquivos temporarios
+*.backup
+*.backup.*
+*.bak
+*.log
+android_backup/
+key.properties
+**/key.properties
+*.pem
+*.p12
+*.pfx
+*.env
+.env.*
+!.env.example
+
+# APKs e pacotes gerados
+*.apk
+*.aab
+
+# Arquivos locais
+.gradle/
+
+# Backups das correcoes anteriores
+backup_*/
+*_backup_*
+*backup*
+*.dart.txt
+*.kt.txt
+*.metadata
+
+# Arquivos locais de assinatura
+*.jks
+*.keystore
+key.properties
+**/key.properties
