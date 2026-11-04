@@ -13,6 +13,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.UUID
+import java.io.IOException
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -62,14 +63,21 @@ class MainActivity : FlutterActivity() {
                         socket?.close()
                         val device = adapter()?.getRemoteDevice(address) ?: error("Bluetooth indisponível")
                         // Sem varredura: conexao com dispositivo ja pareado
-                        socket = device.createRfcommSocketToServiceRecord(uuid)
-                        socket!!.connect()
+                        adapter()?.cancelDiscovery()
+                        try {
+                            socket = device.createRfcommSocketToServiceRecord(uuid)
+                            socket!!.connect()
+                        } catch (first: IOException) {
+                            try { socket?.close() } catch (_: Exception) {}
+                            socket = null
+                            throw IOException("Falha ao conectar ao ELM327 pareado: ${first.message}")
+                        }
                         null
                     }
                     "disconnect" -> { socket?.close(); socket = null; null }
                     "command" -> {
                         val command = args?.get("command") as? String ?: error("Comando ausente")
-                        require(Regex("^(AT[A-Z0-9]*|01[0-9A-F]{2}|0[37A]|0902)$").matches(command)) { "Comando não permitido" }
+                        require(Regex("^(AT[A-Z0-9]*|01[0-9A-F]{2}|0[347A]|0902)$").matches(command)) { "Comando não permitido" }
                         send(command)
                     }
                     else -> error("Método desconhecido: $method")
@@ -89,7 +97,7 @@ class MainActivity : FlutterActivity() {
         output.write("$command\r".toByteArray(Charsets.US_ASCII))
         output.flush()
         val sb = StringBuilder()
-        val deadline = System.currentTimeMillis() + if (command == "ATZ") 5000 else 3500
+        val deadline = System.currentTimeMillis() + if (command == "ATZ") 6500 else 6500
         while (System.currentTimeMillis() < deadline) {
             if (input.available() > 0) {
                 val c = input.read()
