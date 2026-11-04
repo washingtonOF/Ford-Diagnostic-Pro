@@ -17,6 +17,15 @@ void main() {
   test('Nível combustível', () {
     expect(fuelLevelPercent('41 2F FF'), closeTo(100, 0.001));
   });
+  test('Seleção de combustível altera estimativa', () {
+    final gas = fuelLitersPerHour(10, FuelType.gasoline)!;
+    final ethanol = fuelLitersPerHour(10, FuelType.ethanol)!;
+    expect(ethanol, greaterThan(gas));
+  });
+  test('Dados ausentes não produzem estimativas', () {
+    expect(fuelLitersPerHour(null, FuelType.gasoline), isNull);
+    expect(instantaneousKmPerLiter(0, null), isNull);
+  });
   test('MAF e consumo', () {
     expect(mafGramsPerSecond('41 10 01 F4'), 5);
     expect(fuelLitersPerHourFromMaf(5), greaterThan(0));
