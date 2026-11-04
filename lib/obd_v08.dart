@@ -77,3 +77,14 @@ double? fuelLitersPerHourFromMaf(double? maf) =>
 double? instantaneousKmPerLiter(double? speedKmh, double? litersPerHour) =>
     speedKmh == null || litersPerHour == null || litersPerHour <= 0
       ? null : speedKmh / litersPerHour;
+
+enum FuelType { gasoline, ethanol }
+
+/// Estimativa por MAF. AFR/densidade são valores de referência,
+/// não medição de vazão de combustível. Misturas flex exigem calibração.
+double? fuelLitersPerHour(double? maf, FuelType type) {
+  if (maf == null || maf < 0) return null;
+  final afr = type == FuelType.gasoline ? 14.7 : 9.0;
+  final densityGramsPerLiter = type == FuelType.gasoline ? 745.0 : 789.0;
+  return maf * 3600 / (afr * densityGramsPerLiter);
+}
