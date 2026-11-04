@@ -23,6 +23,8 @@ jobs:
           cache: true
       - name: Dependencies
         run: flutter pub get
+      - name: Static analysis
+        run: flutter analyze --no-fatal-infos
       - name: Tests
         run: flutter test
       - name: Build debug APK
