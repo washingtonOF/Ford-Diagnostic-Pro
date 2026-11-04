@@ -203,7 +203,6 @@ class _DashboardState extends State<Dashboard> {
   void moveSensor(int oldIndex, int newIndex) {
     setState(() {
       
-      if (newIndex > oldIndex) newIndex--;
       final item = sensorOrder.removeAt(oldIndex);
       sensorOrder.insert(newIndex, item);
     });
@@ -577,7 +576,7 @@ class _DashboardState extends State<Dashboard> {
           buildDefaultDragHandles: false,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: sensorOrder.length,
-          onReorder: moveSensor,
+          onReorderItem: moveSensor,
           itemBuilder: (context, index) {
             final pid = sensorOrder[index];
             return Card(
