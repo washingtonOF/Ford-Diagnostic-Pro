@@ -26,3 +26,10 @@ Abra GitHub > Actions > Ford Diagnostic Pro V0.8 - Testes e APK > execução con
 - Painel agora apresenta nível de combustível, distância e consumo quando dados válidos estão disponíveis; caso contrário indica indisponível.
 - A seleção gasolina/etanol modifica a estimativa MAF, mas não substitui calibração real nem cobre misturas flex.
 - O workflow inclui flutter analyze, flutter test e flutter build apk --debug; o resultado de execução ainda não foi confirmado nesta conversa.
+
+## Publicação de identidade Android e proteção adicional
+- android/app/src/main/res/drawable/ford_launcher_icon.xml: ícone vetorial azul-escuro e azul-ciano, integrado ao AndroidManifest.
+- android/app/src/main/res/drawable/launch_background.xml: fundo de abertura escuro com símbolo do aplicativo.
+- lib/main.dart: limpeza modo 04 exige tanto velocidade zero quanto RPM zero informados pelo veículo; qualquer leitura ausente bloqueia.
+- Não confundir ícone vetorial integrado com PNG definitivo: PNGs do pacote de referência ainda não foram publicados no repositório.
+- Ainda faltam testes físicos no veículo, confirmação do workflow APK e acesso TCM proprietário validado.
