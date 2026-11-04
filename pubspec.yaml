@@ -10,6 +10,7 @@ dependencies:
   shared_preferences: ^2.3.2
   pdf: ^3.11.1
   printing: ^5.13.4
+  flutter_svg: ^2.0.17
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -17,5 +18,7 @@ dev_dependencies:
 flutter:
   assets:
     - assets/images/ford_diagnostic_banner.png
+    - assets/design_v08/splash_preview.svg
+    - assets/design_v08/dashboard_preview.svg
   uses-material-design: true
 
