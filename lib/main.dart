@@ -2,6 +2,7 @@ import 'dart:async';
 import 'obd_v08.dart' as v08;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -846,6 +847,24 @@ class _DashboardState extends State<Dashboard> {
     ],
   ));
 
+  Widget get v08Artwork => panel(child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('Identidade visual V0.8', style: TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 8),
+      Center(child: SizedBox(
+        height: 170,
+        child: SvgPicture.asset(
+          'assets/design_v08/splash_preview.svg',
+          fit: BoxFit.contain,
+          placeholderBuilder: (_) => const Icon(Icons.directions_car, size: 70),
+        ),
+      )),
+      const Text('Arte vetorial de referência integrada ao aplicativo.',
+        style: TextStyle(fontSize: 12, color: Colors.white70)),
+    ],
+  ));
+
   Widget get v08Shortcuts => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     sectionTitle('Acesso rápido • V0.8', Icons.grid_view_rounded),
     LayoutBuilder(builder: (context, c) {
@@ -903,7 +922,7 @@ class _DashboardState extends State<Dashboard> {
       key: ValueKey('tela_$selectedTab'),
       padding: const EdgeInsets.all(16),
       children: [
-      if (selectedTab == 0) ...[v08Shortcuts, overview, tripStats],
+      if (selectedTab == 0) ...[overview, v08Shortcuts, tripStats, v08Artwork],
       if (selectedTab == 1) connectionPanel,
       if (selectedTab == 2) diagnostics,
       if (selectedTab == 3) historyView,
