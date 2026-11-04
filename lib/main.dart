@@ -723,7 +723,8 @@ class _DashboardState extends State<Dashboard> {
       Text('Ford Diagnostic Pro V0.8 • Em desenvolvimento',
         style: TextStyle(fontWeight: FontWeight.bold)),
       SizedBox(height: 8),
-      Text('Acesso OBD2 genérico de leitura. Funções Ford aprimoradas, '
+      Text('Leitura OBD-II genérica e limpeza de falhas pelo modo 04, '
+        'com confirmação e verificações de segurança. Funções Ford aprimoradas, '
         'TCM, adaptações e programação ainda não estão implementadas.'),
       SizedBox(height: 8),
       Text('Não utilize o aplicativo para decisões críticas de segurança '
