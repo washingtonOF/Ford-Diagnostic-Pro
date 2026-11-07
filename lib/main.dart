@@ -268,19 +268,52 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> readAdditionalCodes(String mode, String label) async {
-    if (!connected || polling || busy || discovering) return;
-    setState(() => busy = true);
+    await readDiagnosticMode(mode, label);
+  }
+
+  /// Exclusividade da conexão: pausa o agendamento e aguarda o polling atual.
+  Future<void> readDiagnosticMode(String mode, String label) async {
+    if (!connected || busy || discovering) return;
+    timer?.cancel();
+    setState(() { busy = true; status = 'Consultando $label...'; });
     try {
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (polling && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (polling) throw StateError('Sensores ocupados; tente novamente.');
       final response = await obd.command(mode);
+      await record('Consulta $label (modo $mode) | bruto: ${response.trim()}');
+      final upper = response.toUpperCase();
+      if (upper.trim().isEmpty || upper.contains('ERROR') ||
+          upper.contains('STOPPED') || upper.contains('UNABLE TO CONNECT') ||
+          upper.contains('NO DATA') || upper.trim() == '?') {
+        throw StateError('Resposta inválida para $label: ${response.trim()}');
+      }
+      final marker = {'03': '43', '07': '47', '0A': '4A'}[mode]!;
+      if (!upper.replaceAll(RegExp(r'[^0-9A-F]'), '').contains(marker)) {
+        throw StateError('Resposta não reconhecida para $label: ${response.trim()}');
+      }
       final parsed = v08.parseDtcResponse(response, mode);
-      await record('$label: ${parsed.map((e) => e.code).join(', ')} | bruto: ${response.trim()}');
-      if (mounted) setState(() {
-        allCodes.removeWhere((e) => e.status == (mode == '07' ? 'Pendente' : 'Permanente'));
+      final category = {'03': 'Confirmado', '07': 'Pendente', '0A': 'Permanente'}[mode]!;
+      if (!mounted) return;
+      setState(() {
+        allCodes.removeWhere((e) => e.status == category);
         allCodes.addAll(parsed);
-        status = '$label consultadas: ${parsed.length} código(s)';
+        if (mode == '03') {
+          codes = parsed.map((e) => e.code).toList();
+          for (final code in codes) { codeStatuses[code] = category; }
+        }
+        status = '$label: ${parsed.length} código(s) encontrado(s)';
       });
     } catch (e) { report(e); }
-    finally { if (mounted) setState(() => busy = false); }
+    finally {
+      if (mounted) setState(() => busy = false);
+      if (connected) {
+        timer?.cancel();
+        timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
+      }
+    }
   }
 
   Future<void> scan() async {
@@ -386,23 +419,7 @@ class _DashboardState extends State<Dashboard> {
     } catch (e) { report(e); timer?.cancel(); if (mounted) setState(() => connected = false); }
     finally { polling = false; }
   }
-  Future<void> readCodes() async {
-    if (!connected || polling || busy || discovering) return;
-    setState(() => busy = true);
-    try {
-      final r = await obd.command('03');
-      final found = v08.parseDtcResponse(r, '03').map((e) => e.code).toList();
-      if (mounted) setState(() {
-        codes = found;
-        allCodes.removeWhere((e) => e.status == 'Confirmado');
-        allCodes.addAll(v08.parseDtcResponse(r, '03'));
-        for (final code in found) { codeStatuses[code] = 'Confirmado'; }
-
-      });
-      await record('Falhas confirmadas modo 03: ${found.isEmpty ? 'Nenhuma retornada' : found.join(', ')} | bruto: $r');
-    } catch (e) { report(e); }
-    finally { if (mounted) setState(() => busy = false); }
-  }
+  Future<void> readCodes() => readDiagnosticMode('03', 'Falhas confirmadas');
   Future<void> clearGenericCodes() async {
     if (!connected || busy || discovering) return;
     timer?.cancel();
