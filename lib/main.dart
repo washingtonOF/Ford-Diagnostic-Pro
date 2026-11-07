@@ -3,6 +3,7 @@ import 'obd_v08.dart' as v08;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -801,16 +802,44 @@ class _DashboardState extends State<Dashboard> {
       ],
       if (!readingDiagnosticCodes && allCodes.isEmpty)
         const Text('Nenhum código exibido. Execute a leitura para consultar.'),
-      for (final entry in allCodes) ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
-        title: Text(entry.code),
-        subtitle: Text('${entry.description} • ${entry.status} • Módulo OBD-II genérico'),
-        trailing: const Icon(Icons.copy),
-        onTap: () async {
-          await Clipboard.setData(ClipboardData(text: entry.googleUrl));
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link de pesquisa copiado')));
-        },
+      for (final entry in allCodes) Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+                const SizedBox(width: 8),
+                Expanded(child: Text(entry.code,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                Text(entry.status),
+              ]),
+              const SizedBox(height: 8),
+              Text(entry.description),
+              const SizedBox(height: 4),
+              const Text('Origem: diagnóstico OBD-II genérico',
+                  style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Pesquisar este código no Google'),
+                onPressed: () async {
+                  final uri = Uri.parse(entry.googleUrl);
+                  try {
+                    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    if (!opened) throw StateError('Navegador indisponível');
+                  } catch (_) {
+                    await Clipboard.setData(ClipboardData(text: entry.googleUrl));
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Não foi possível abrir o navegador. Link copiado.')));
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
       ),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
