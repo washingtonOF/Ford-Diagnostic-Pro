@@ -146,6 +146,7 @@ class _DashboardState extends State<Dashboard> {
   final List<String> sensorOrder = ['05', '0C', '42', '0D', '0F', '04'];
   final Set<String> hiddenSensors = <String>{};
   bool connected = false, busy = false;
+  bool connectingBluetooth = false;
   String status = 'Desconectado';
   Timer? timer;
   final pids = const {'05':'Temperatura motor', '0C':'Rotação', '0D':'Velocidade',
@@ -359,9 +360,10 @@ class _DashboardState extends State<Dashboard> {
 
   Future<void> connect(String address) async {
     if (busy) return;
-    setState(() { busy = true; status = 'Conectando...'; });
+    setState(() { busy = true; connectingBluetooth = true; status = 'Conectando ao ELM327...'; });
     try {
-      await obd.connect(address);
+      await obd.connect(address).timeout(const Duration(seconds: 25));
+      if (mounted) setState(() => status = 'Bluetooth conectado. Inicializando OBD-II...');
       await obd.initialize();
       if (!mounted) return;
       setState(() { connected = true; status = 'Conectado'; });
@@ -370,8 +372,14 @@ class _DashboardState extends State<Dashboard> {
       await discover();
       await poll();
       timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
-    } catch (e) { report(e); await obd.disconnect(); if (mounted) setState(() => connected = false); }
-    finally { if (mounted) setState(() => busy = false); }
+    } catch (e) {
+      report(e is TimeoutException
+          ? StateError('Tempo esgotado ao conectar ao ELM327. Verifique pareamento e ignição.')
+          : e);
+      await obd.disconnect();
+      if (mounted) setState(() => connected = false);
+    }
+    finally { if (mounted) setState(() { busy = false; connectingBluetooth = false; }); }
   }
   bool polling = false;
   Future<void> poll() async {
@@ -519,6 +527,12 @@ class _DashboardState extends State<Dashboard> {
         const SizedBox(width: 10),
         Expanded(child: Text(status, maxLines: 4, overflow: TextOverflow.ellipsis)),
       ]),
+      if (connectingBluetooth) ...[
+        const SizedBox(height: 12),
+        const LinearProgressIndicator(),
+        const SizedBox(height: 6),
+        const Text('Aguarde: estabelecendo comunicação com o adaptador Bluetooth.'),
+      ],
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         FilledButton.icon(onPressed: busy || discovering ? null : scan,
