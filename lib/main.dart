@@ -147,6 +147,8 @@ class _DashboardState extends State<Dashboard> {
   final Set<String> hiddenSensors = <String>{};
   bool connected = false, busy = false;
   bool connectingBluetooth = false;
+  bool readingDiagnosticCodes = false;
+  String diagnosticProgress = '';
   String status = 'Desconectado';
   Timer? timer;
   final pids = const {'05':'Temperatura motor', '0C':'Rotação', '0D':'Velocidade',
@@ -276,13 +278,19 @@ class _DashboardState extends State<Dashboard> {
   Future<void> readDiagnosticMode(String mode, String label) async {
     if (!connected || busy || discovering) return;
     timer?.cancel();
-    setState(() { busy = true; status = 'Consultando $label...'; });
+    setState(() {
+      busy = true;
+      readingDiagnosticCodes = true;
+      diagnosticProgress = 'Buscando $label...';
+      status = 'Consultando $label...';
+    });
     try {
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (polling && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       if (polling) throw StateError('Sensores ocupados; tente novamente.');
+      if (mounted) setState(() => diagnosticProgress = 'Analisando respostas da central...');
       final response = await obd.command(mode);
       await record('Consulta $label (modo $mode) | bruto: ${response.trim()}');
       final upper = response.toUpperCase();
@@ -309,7 +317,7 @@ class _DashboardState extends State<Dashboard> {
       });
     } catch (e) { report(e); }
     finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) setState(() { busy = false; readingDiagnosticCodes = false; diagnosticProgress = ''; });
       if (connected) {
         timer?.cancel();
         timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
@@ -785,7 +793,14 @@ class _DashboardState extends State<Dashboard> {
         onPressed: connected && !busy && !polling && !discovering ? readCodes : null,
         icon: const Icon(Icons.manage_search), label: const Text('Ler falhas confirmadas (03)')),
       const SizedBox(height: 12),
-      if (allCodes.isEmpty) const Text('Nenhum código exibido. Execute a leitura para consultar.'),
+      if (readingDiagnosticCodes) ...[
+        const LinearProgressIndicator(),
+        const SizedBox(height: 8),
+        Text(diagnosticProgress, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+      ],
+      if (!readingDiagnosticCodes && allCodes.isEmpty)
+        const Text('Nenhum código exibido. Execute a leitura para consultar.'),
       for (final entry in allCodes) ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.warning_amber_rounded, color: Colors.amber),
