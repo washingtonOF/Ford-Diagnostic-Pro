@@ -91,7 +91,7 @@ class MainActivity : FlutterActivity() {
                     "disconnect" -> { socket?.close(); socket = null; null }
                     "command" -> {
                         val command = args?.get("command") as? String ?: error("Comando ausente")
-                        require(Regex("^(AT[A-Z0-9]*|01[0-9A-F]{2}|0[347A]|0902)$").matches(command)) { "Comando não permitido" }
+                        require(Regex("^(AT[A-Z0-9]*|0[169][0-9A-F]{2}|02[0-9A-F]{2}00|0[347A])$").matches(command)) { "Comando não permitido" }
                         send(command)
                     }
                     else -> error("Método desconhecido: $method")

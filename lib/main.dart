@@ -123,6 +123,13 @@ class _DashboardState extends State<Dashboard> {
   final values = <String, String>{};
   final history = <String>[];
   final supported = <String>{};
+  final faultHistory = <String>[];
+  late final Future<void> faultHistoryLoaded;
+  String faultSearch = '';
+  int faultHistoryLimit = 30;
+  final obdReadings = <String, String>{};
+  bool readingAllData = false;
+  String allDataProgress = '';
   String adapterInfo = 'Não identificado';
   String protocolInfo = 'Não identificado';
   String vin = 'Não consultado';
@@ -159,6 +166,7 @@ class _DashboardState extends State<Dashboard> {
   void initState() {
     super.initState();
     loadHistory();
+    faultHistoryLoaded = loadFaultHistory();
     loadPanelPreferences();
     loadLayoutPreferences();
   }
@@ -227,6 +235,23 @@ class _DashboardState extends State<Dashboard> {
     if (mounted) setState(() => history.addAll(prefs.getStringList('diagnostic_history') ?? []));
   }
 
+  Future<void> loadFaultHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final entries = prefs.getStringList('fault_history') ?? [];
+    if (mounted) setState(() => faultHistory.addAll(entries));
+  }
+
+  Future<void> recordFault(String label, List<v08.DiagnosticCode> entries, String response) async {
+    await faultHistoryLoaded;
+    final details = entries.isEmpty ? 'Nenhum código retornado' :
+      entries.map((entry) => '${entry.code} • ${entry.status} • ${entry.description}').join('\n');
+    faultHistory.insert(0, '${DateTime.now().toLocal()} | $label\n$details\n\nResposta da central:\n${response.trim()}');
+    if (faultHistory.length > 1000) faultHistory.removeRange(1000, faultHistory.length);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('fault_history', faultHistory);
+    if (mounted) setState(() {});
+  }
+
   Future<void> record(String event) async {
     final entry = '${DateTime.now().toIso8601String()} | $event';
     history.insert(0, entry);
@@ -242,21 +267,78 @@ class _DashboardState extends State<Dashboard> {
     try {
       adapterInfo = (await obd.command('ATI')).trim();
       protocolInfo = (await obd.command('ATDP')).trim();
-      supported.clear();
-      for (final base in [0, 32, 64, 96, 128, 160, 192, 224]) {
-        final pid = base.toRadixString(16).padLeft(2, '0').toUpperCase();
-        final data = obdData(await obd.command('01$pid'), '41', pid);
-        if (data == null || data.length < 8) break;
-        final mask = int.tryParse(data.substring(0, 8), radix: 16);
-        if (mask == null) break;
-        for (var i = 0; i < 32; i++) {
-          if ((mask & (1 << (31 - i))) != 0) supported.add((base + i + 1).toRadixString(16).padLeft(2, '0').toUpperCase());
-        }
-        if ((mask & 1) == 0) break;
-      }
+      final ids = await discoverObdIds(1);
+      supported
+        ..clear()
+        ..addAll(ids);
       await record('Descoberta: ${supported.length} PIDs anunciados; adaptador $adapterInfo; protocolo $protocolInfo');
     } catch (e) { report(e); }
     finally { if (mounted) setState(() => discovering = false); }
+  }
+
+  Future<List<String>> discoverObdIds(int mode) async {
+    final ids = <String>[];
+    for (var base = 0; base <= 224; base += 32) {
+      final command = '${v08.obdHex(mode)}${v08.obdHex(base)}${mode == 2 ? '00' : ''}';
+      final response = await obd.command(command);
+      final group = v08.decodeSupportedIds(response, mode, base);
+      final next = v08.obdHex(base + 32);
+      ids.addAll(group.where((id) => id != next));
+      if (!group.contains(next)) break;
+    }
+    return ids;
+  }
+
+  Future<void> readAllObdData() async {
+    if (!connected || busy || discovering) return;
+    timer?.cancel();
+    setState(() {
+      busy = true;
+      readingAllData = true;
+      allDataProgress = 'Aguardando leitura dos sensores…';
+      obdReadings.clear();
+    });
+    try {
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (polling && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (polling) throw StateError('Sensores ocupados. Tente novamente.');
+      const modes = {1: 'Dados atuais', 2: 'Dados congelados', 6: 'Monitores', 9: 'Dados do veículo'};
+      for (final mode in modes.entries) {
+        if (!mounted || !connected) return;
+        setState(() => allDataProgress = '${mode.value}: descobrindo itens…');
+        final ids = await discoverObdIds(mode.key);
+        if (!mounted || !connected) return;
+        if (mode.key == 1 && ids.isNotEmpty) {
+          supported
+            ..clear()
+            ..addAll(ids);
+        }
+        if (ids.isEmpty) {
+          setState(() => obdReadings[mode.value] = 'Nenhum item anunciado pela central.');
+        }
+        for (final id in ids) {
+          if (!mounted || !connected) return;
+          final command = '${v08.obdHex(mode.key)}$id${mode.key == 2 ? '00' : ''}';
+          setState(() => allDataProgress = '${mode.value}: $command');
+          final response = (await obd.command(command)).trim();
+          if (!mounted || !connected) return;
+          final decoded = mode.key == 1 ? v08.describeLiveReading(id, response) : null;
+          final name = mode.key <= 2 ? v08.obdReadingNames[id] : null;
+          setState(() => obdReadings['${mode.value} • $command${name == null ? '' : ' • $name'}'] =
+            [if (decoded != null) decoded, response.isEmpty ? 'Sem resposta' : response].join('\n'));
+        }
+      }
+      if (mounted) setState(() => allDataProgress = 'Consulta concluída.');
+    } catch (e) {
+      if (mounted) setState(() => allDataProgress = 'Consulta interrompida: $e');
+    } finally {
+      if (mounted) {
+        setState(() { busy = false; readingAllData = false; });
+        if (connected) timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
+      }
+    }
   }
 
   Future<void> readVin() async {
@@ -293,8 +375,8 @@ class _DashboardState extends State<Dashboard> {
       if (polling) throw StateError('Sensores ocupados; tente novamente.');
       if (mounted) setState(() => diagnosticProgress = 'Analisando respostas da central...');
       final response = await obd.command(mode);
-      await record('Consulta $label (modo $mode) | bruto: ${response.trim()}');
       final parsed = v08.parseDtcResponse(response, mode);
+      await recordFault('$label ($mode)', parsed, response);
       final category = {'03': 'Confirmado', '07': 'Pendente', '0A': 'Permanente'}[mode]!;
       if (!mounted) return;
       setState(() {
@@ -478,8 +560,8 @@ class _DashboardState extends State<Dashboard> {
       });
       try {
         final reread = await obd.command('03');
-        await record('Releitura 03: $reread');
         final remaining = v08.parseDtcResponse(reread, '03');
+        await recordFault('Falhas confirmadas (03) após limpeza', remaining, reread);
         if (!mounted) return;
         setState(() {
           allCodes.addAll(remaining);
@@ -857,6 +939,24 @@ class _DashboardState extends State<Dashboard> {
       const Text('Códigos 03, 07 e 0A exibidos e armazenados. Acesso aprimorado ao TCM ainda não disponível.',
         style: TextStyle(color: Colors.white60, fontSize: 12)),
     ])),
+    sectionTitle('Dados OBD-II da central', Icons.sensors),
+    panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      OutlinedButton.icon(
+        onPressed: connected && !busy && !discovering ? readAllObdData : null,
+        icon: const Icon(Icons.list_alt),
+        label: const Text('Ler todos os dados disponíveis'),
+      ),
+      if (!connected) const Text('Conecte o ELM327 para consultar os dados.'),
+      if (readingAllData) const LinearProgressIndicator(),
+      if (allDataProgress.isNotEmpty) Text(allDataProgress),
+      for (final reading in obdReadings.entries)
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text(reading.key),
+          subtitle: Text(reading.value.split('\n').first, maxLines: 1, overflow: TextOverflow.ellipsis),
+          children: [SelectableText(reading.value)],
+        ),
+    ])),
     sectionTitle('PowerShift DPS6 / TCM', Icons.settings),
     panel(child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Monitoramento avançado Ford — em desenvolvimento',
@@ -881,7 +981,52 @@ class _DashboardState extends State<Dashboard> {
     ])),
   ]);
 
+  Widget get faultHistoryView {
+    final query = faultSearch.trim().toLowerCase();
+    final legacy = history.where((entry) {
+      final event = entry.split(' | ').skip(1).join(' | ');
+      return (event.startsWith('Consulta Falhas') && event.contains('| bruto:')) ||
+          event.startsWith('Releitura 03:');
+    });
+    final previous = legacy.map((entry) {
+      final marker = entry.indexOf(' | bruto:');
+      final reread = entry.indexOf(' | Releitura 03:');
+      final raw = marker >= 0 ? entry.substring(marker + ' | bruto:'.length)
+          : entry.substring(reread + ' | Releitura 03:'.length);
+      final title = marker >= 0 ? entry.substring(0, marker) : entry.substring(0, reread) + ' | Releitura 03';
+      final mode = RegExp(r'\(modo (03|07|0A)\)').firstMatch(title)?.group(1) ?? '03';
+      try {
+        final codes = v08.parseDtcResponse(raw, mode);
+        final summary = codes.map((code) => '${code.code} • ${code.status} • ${code.description}').join('\n');
+        return '$title\n${summary.isEmpty ? 'Nenhum código retornado' : summary}\n\nResposta da central:$raw';
+      } on FormatException {
+        return '$title\nResposta original:$raw';
+      }
+    });
+    final entries = [...faultHistory, ...previous]
+        .where((entry) => entry.toLowerCase().contains(query))
+        .toList();
+    return panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      TextField(
+        decoration: const InputDecoration(labelText: 'Buscar código, descrição ou data', prefixIcon: Icon(Icons.search)),
+        onChanged: (value) => setState(() { faultSearch = value; faultHistoryLimit = 30; }),
+      ),
+      if (entries.isEmpty) const Text('Nenhuma consulta de falhas encontrada.'),
+      for (final entry in entries.take(faultHistoryLimit))
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text(entry.split('\n').first.split(' | bruto:').first),
+          subtitle: entry.contains('\n') ? Text(entry.split('\n')[1]) : null,
+          children: [SelectableText(entry)],
+        ),
+      if (entries.length > faultHistoryLimit)
+        TextButton(onPressed: () => setState(() => faultHistoryLimit += 30), child: const Text('Mostrar mais')),
+    ]));
+  }
+
   Widget get historyView => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    sectionTitle('Histórico de falhas', Icons.car_repair),
+    faultHistoryView,
     sectionTitle('Histórico local', Icons.history),
     panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       OutlinedButton.icon(

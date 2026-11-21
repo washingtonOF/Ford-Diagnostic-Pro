@@ -152,3 +152,66 @@ double? fuelLitersPerHour(double? maf, FuelType type) {
   final densityGramsPerLiter = type == FuelType.gasoline ? 745.0 : 789.0;
   return maf * 3600 / (afr * densityGramsPerLiter);
 }
+
+String obdHex(int value) => value.toRadixString(16).toUpperCase().padLeft(2, '0');
+
+List<String> decodeSupportedIds(String response, int mode, int base) {
+  final ids = <String>{};
+  for (final line in response.split(RegExp(r'[\r\n>]+'))) {
+    final bytes = _elmBytes(line);
+    final offset = mode == 2 ? 3 : 2;
+    if (bytes.length < offset + 4 || bytes[0] != 0x40 + mode || bytes[1] != base ||
+        (mode == 2 && bytes[2] != 0)) continue;
+    for (var bit = 0; bit < 32 && base + bit + 1 <= 255; bit++) {
+      if ((bytes[offset + bit ~/ 8] & (0x80 >> (bit % 8))) != 0) {
+        ids.add(obdHex(base + bit + 1));
+      }
+    }
+  }
+  return ids.toList()..sort();
+}
+
+const obdReadingNames = <String, String>{
+  '04': 'Carga calculada', '05': 'Temperatura do líquido de arrefecimento',
+  '06': 'Correção de combustível de curto prazo (banco 1)',
+  '07': 'Correção de combustível de longo prazo (banco 1)',
+  '08': 'Correção de combustível de curto prazo (banco 2)',
+  '09': 'Correção de combustível de longo prazo (banco 2)',
+  '0A': 'Pressão de combustível', '0B': 'Pressão absoluta do coletor',
+  '0C': 'Rotação do motor', '0D': 'Velocidade do veículo',
+  '0E': 'Avanço de ignição', '0F': 'Temperatura do ar de admissão',
+  '10': 'Fluxo de ar (MAF)', '11': 'Posição da borboleta',
+  '1F': 'Tempo desde a partida', '21': 'Distância com luz de falha acesa',
+  '2C': 'EGR comandada', '2E': 'Purga evaporativa comandada',
+  '2F': 'Nível de combustível', '30': 'Aquecimentos desde a limpeza',
+  '31': 'Distância desde a limpeza', '33': 'Pressão barométrica',
+  '42': 'Tensão do módulo', '45': 'Posição relativa da borboleta',
+  '46': 'Temperatura ambiente', '5C': 'Temperatura do óleo',
+  '5E': 'Vazão de combustível',
+};
+
+String? describeLiveReading(String pid, String raw) {
+  if (!obdReadingNames.containsKey(pid)) return null;
+  final length = {'0C', '10', '1F', '21', '31', '42', '5E'}.contains(pid) ? 2 : 1;
+  final data = parsePidBytes(raw, int.parse(pid, radix: 16), length);
+  if (data == null) return null;
+  final a = data.first;
+  final word = length == 2 ? a * 256 + data[1] : a;
+  return switch (pid) {
+    '04' || '11' || '2C' || '2E' || '2F' || '45' => '${(a * 100 / 255).toStringAsFixed(1)} %',
+    '05' || '0F' || '46' || '5C' => '${a - 40} °C',
+    '06' || '07' || '08' || '09' => '${((a - 128) * 100 / 128).toStringAsFixed(1)} %',
+    '0A' => '${a * 3} kPa',
+    '0B' || '33' => '$a kPa',
+    '0C' => '${word / 4} rpm',
+    '0D' => '$a km/h',
+    '0E' => '${a / 2 - 64} °',
+    '10' => '${(word / 100).toStringAsFixed(2)} g/s',
+    '1F' => '$word s',
+    '21' || '31' => '$word km',
+    '30' => '$a ciclos',
+    '42' => '${(word / 1000).toStringAsFixed(2)} V',
+    '5E' => '${(word / 20).toStringAsFixed(2)} L/h',
+    _ => null,
+  };
+}

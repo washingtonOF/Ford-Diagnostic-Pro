@@ -11,6 +11,12 @@ Aplicativo Android de diagnóstico OBD-II genérico, voltado ao **Ford New Fiest
 - Histórico persistente via `shared_preferences`, limitado a 1.000 entradas.
 - Não implementa diagnóstico de módulos Ford TCM/ABS/BCM nem testes ativos.
 
+## Consultar dados e histórico
+
+Em **Diagnóstico → Dados OBD-II da central**, use **Ler todos os dados disponíveis**. O app consulta os identificadores anunciados para dados atuais (01), quadro congelado 00 (02), monitores (06) e identificação do veículo (09). Ele apresenta unidades para os PIDs decodificados e a resposta original do ELM327 para inspeção. A cobertura depende da central e do adaptador. Dados Ford proprietários e testes ativos estão fora dessa consulta.
+
+Em **Histórico → Histórico de falhas**, busque por código, descrição ou data. As leituras de falhas confirmadas, pendentes e permanentes são gravadas no aparelho, incluindo a releitura após uma limpeza. O histórico de falhas guarda até 1.000 consultas, além dos registros antigos ainda disponíveis no histórico geral. Apagar falhas na central preserva essas consultas no aparelho.
+
 ## Preparar no VS Code (Windows)
 
 **Pré-requisitos:** Flutter SDK no PATH, Android SDK, celular Android com depuração USB, cabo USB. Não precisa abrir emulador.
