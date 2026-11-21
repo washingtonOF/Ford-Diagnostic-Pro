@@ -28,7 +28,7 @@ List<int> _elmBytes(String rawLine) {
       line.contains('STOPPED') || line.contains('ERROR') || line == '?') return [];
   line = line.replaceFirst(RegExp(r'^\d+:\s*'), '');
   final parts = line.split(RegExp(r'\s+'));
-  if (parts.isNotEmpty && RegExp(r'^[0-9A-F]{3}$|^[0-9A-F]{8}$').hasMatch(parts.first)) {
+  if (parts.length > 1 && RegExp(r'^[0-9A-F]{3}$|^[0-9A-F]{8}$').hasMatch(parts.first)) {
     parts.removeAt(0); // CAN header, e.g. 7E8 or 18DAF110
   }
   final hex = parts.join();
@@ -46,20 +46,43 @@ List<int> _elmBytes(String rawLine) {
   return bytes;
 }
 
+Iterable<List<int>> _responseFrames(String raw) sync* {
+  for (final line in raw.split(RegExp(r'[\r\n>]+'))) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty || trimmed.toUpperCase() == 'SEARCHING...') continue;
+    if (RegExp(r'^\d+\s*:').hasMatch(trimmed)) {
+      throw const FormatException('Resposta OBD-II segmentada.');
+    }
+    final bytes = _elmBytes(trimmed);
+    if (bytes.isEmpty) {
+      throw FormatException('Resposta OBD-II inválida: $trimmed');
+    }
+    yield bytes;
+  }
+}
+
 List<DiagnosticCode> parseDtcResponse(String raw, String mode) {
   final service = {'03': 0x43, '07': 0x47, '0A': 0x4A}[mode];
   if (service == null) throw ArgumentError.value(mode, 'mode');
   final status = {'03': 'Confirmado', '07': 'Pendente', '0A': 'Permanente'}[mode]!;
   final found = <String>{};
-  for (final line in raw.split(RegExp(r'[\r\n>]+'))) {
-    final bytes = _elmBytes(line);
-    if (bytes.isEmpty) continue;
-    final start = bytes.indexOf(service);
-    if (start < 0) continue;
-    // Do not decode multi-frame ISO-TP as individual DTCs.
-    if (bytes[0] >= 0x10 && bytes[0] <= 0x2F && start > 0) continue;
-    for (var i = start + 1; i + 1 < bytes.length; i += 2) {
-      final word = bytes[i] * 256 + bytes[i + 1];
+  var received = false;
+  for (final bytes in _responseFrames(raw)) {
+    if (bytes.first == int.parse(mode, radix: 16) && bytes.length == 1) continue;
+    if (bytes.first != service || bytes.length < 2) {
+      throw const FormatException('Resposta de falhas incompleta ou não reconhecida.');
+    }
+    received = true;
+    final payload = bytes.sublist(1);
+    // CAN inclui a contagem; protocolos legados retornam pares de bytes.
+    final hasCount = payload.length.isOdd;
+    final start = hasCount ? 1 : 0;
+    final limit = hasCount ? 1 + 2 * payload.first : payload.length;
+    if (limit > payload.length || payload.skip(limit).any((byte) => byte != 0)) {
+      throw const FormatException('Quantidade de falhas incompatível com a resposta.');
+    }
+    for (var i = start; i < limit; i += 2) {
+      final word = payload[i] * 256 + payload[i + 1];
       if (word == 0) continue;
       final prefix = 'PCBU'[(word >> 14) & 3];
       final digit = (word >> 12) & 3;
@@ -67,26 +90,48 @@ List<DiagnosticCode> parseDtcResponse(String raw, String mode) {
       found.add('$prefix$digit$suffix');
     }
   }
+  if (!received) throw const FormatException('Nenhuma resposta válida de falhas.');
   return found.map((code) => DiagnosticCode(code, status, descriptionForDtc(code))).toList();
 }
 
-List<int>? _pidData(String raw, int pid, int length) {
-  for (final line in raw.split(RegExp(r'[\r\n>]+'))) {
-    final bytes = _elmBytes(line);
-    for (var i = 0; i + 1 + length < bytes.length; i++) {
-      if (bytes[i] == 0x41 && bytes[i + 1] == pid) {
-        return bytes.sublist(i + 2, i + 2 + length);
-      }
+bool confirmsDtcClear(String raw) {
+  try {
+    var confirmed = false;
+    for (final bytes in _responseFrames(raw)) {
+      if (bytes.length == 1 && bytes.first == 0x04) continue;
+      if (bytes.first != 0x44 || bytes.skip(1).any((byte) => byte != 0)) return false;
+      confirmed = true;
     }
+    return confirmed;
+  } on FormatException {
+    return false;
   }
-  return null;
 }
+
+List<int>? parsePidBytes(String raw, int pid, int length) {
+  try {
+    List<int>? result;
+    for (final bytes in _responseFrames(raw)) {
+      if (bytes.length == 2 && bytes[0] == 0x01 && bytes[1] == pid) continue;
+      if (bytes.length < length + 2 || bytes[0] != 0x41 || bytes[1] != pid) return null;
+      final data = bytes.sublist(2, 2 + length);
+      if (result != null && result.join(",") != data.join(",")) {
+        return null;
+      }
+      result = data;
+    }
+    return result;
+  } on FormatException {
+    return null;
+  }
+}
+
 double? fuelLevelPercent(String raw) {
-  final data = _pidData(raw, 0x2F, 1);
+  final data = parsePidBytes(raw, 0x2F, 1);
   return data == null ? null : data[0] * 100 / 255;
 }
 double? mafGramsPerSecond(String raw) {
-  final data = _pidData(raw, 0x10, 2);
+  final data = parsePidBytes(raw, 0x10, 2);
   return data == null ? null : (data[0] * 256 + data[1]) / 100;
 }
 /// Aproximação para gasolina: AFR estequiométrica 14,7; densidade 745 g/L.
