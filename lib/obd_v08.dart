@@ -172,6 +172,27 @@ List<String> decodeSupportedIds(String response, int mode, int base) {
 }
 
 const obdReadingNames = <String, String>{
+  '01': 'Monitores desde o apagamento das falhas',
+  '03': 'Estado do sistema de combustível',
+  '14': 'Sonda de oxigênio 1 (banco 1)',
+  '15': 'Sonda de oxigênio 2 (banco 1)',
+  '1C': 'Norma OBD do veículo',
+  '3C': 'Temperatura do catalisador (banco 1, sensor 1)',
+  '3D': 'Temperatura do catalisador (banco 2, sensor 1)',
+  '3E': 'Temperatura do catalisador (banco 1, sensor 2)',
+  '3F': 'Temperatura do catalisador (banco 2, sensor 2)',
+  '41': 'Monitores do ciclo atual',
+  '43': 'Carga absoluta',
+  '44': 'Relação de equivalência comandada',
+  '47': 'Posição absoluta da borboleta B',
+  '48': 'Posição absoluta da borboleta C',
+  '49': 'Posição do pedal D',
+  '4A': 'Posição do pedal E',
+  '4B': 'Posição do pedal F',
+  '4C': 'Atuador comandado da borboleta',
+  '51': 'Tipo de combustível',
+  '52': 'Percentual de etanol',
+  'A4': 'Relação de marcha da transmissão (OBD-II)',
   '04': 'Carga calculada', '05': 'Temperatura do líquido de arrefecimento',
   '06': 'Correção de combustível de curto prazo (banco 1)',
   '07': 'Correção de combustível de longo prazo (banco 1)',
@@ -192,13 +213,34 @@ const obdReadingNames = <String, String>{
 
 String? describeLiveReading(String pid, String raw) {
   if (!obdReadingNames.containsKey(pid)) return null;
-  final length = {'0C', '10', '1F', '21', '31', '42', '5E'}.contains(pid) ? 2 : 1;
+  const twoBytes = {'03', '0C', '10', '14', '15', '1F', '21', '31', '3C', '3D', '3E',
+    '3F', '42', '43', '44', '5E'};
+  final length = switch (pid) {
+    '01' || '41' || 'A4' => 4,
+    _ => twoBytes.contains(pid) ? 2 : 1,
+  };
   final data = parsePidBytes(raw, int.parse(pid, radix: 16), length);
   if (data == null) return null;
   final a = data.first;
   final word = length == 2 ? a * 256 + data[1] : a;
   return switch (pid) {
-    '04' || '11' || '2C' || '2E' || '2F' || '45' => '${(a * 100 / 255).toStringAsFixed(1)} %',
+    '01' || '41' => _describeMonitors(data, sinceClear: pid == '01'),
+    '03' => data.indexed.where((item) => item.$2 != 0).map((item) =>
+      'Sistema ${item.$1 + 1}: ${_fuelSystemStatus(item.$2)}').join('\n'),
+    '14' || '15' => '${(a / 200).toStringAsFixed(3)} V • Ajuste curto: '
+        '${data[1] == 255 ? 'indisponível' : '${((data[1] - 128) * 100 / 128).toStringAsFixed(2)} %'}',
+    '1C' => const {0x13: 'OBDBr-1', 0x14: 'OBDBr-2', 0x06: 'EOBD', 0x01: 'OBD-II (CARB)',
+      0x02: 'OBD-II (EPA)'}[a] ?? 'Norma OBD 0x${obdHex(a)}',
+    '3C' || '3D' || '3E' || '3F' => '${(word / 10 - 40).toStringAsFixed(1)} °C',
+    '43' => '${(word * 100 / 255).toStringAsFixed(2)} %',
+    '44' => (word / 32768).toStringAsFixed(3),
+    '52' => '${(a * 100 / 255).toStringAsFixed(2)} %',
+    'A4' => (a & 0x02) == 0 ? null : ((data[2] * 256 + data[3]) / 1000).toStringAsFixed(3),
+    '51' => const {0: 'Indisponível', 1: 'Gasolina', 2: 'Metanol', 3: 'Etanol', 4: 'Diesel',
+      5: 'GLP', 6: 'GNV', 8: 'Elétrico', 9: 'Flex usando gasolina', 11: 'Flex usando etanol',
+      18: 'Híbrido gasolina'}[a] ?? 'Tipo 0x${obdHex(a)}',
+    '04' || '11' || '2C' || '2E' || '2F' || '45' || '47' || '48' ||
+        '49' || '4A' || '4B' || '4C' => '${(a * 100 / 255).toStringAsFixed(1)} %',
     '05' || '0F' || '46' || '5C' => '${a - 40} °C',
     '06' || '07' || '08' || '09' => '${((a - 128) * 100 / 128).toStringAsFixed(1)} %',
     '0A' => '${a * 3} kPa',
@@ -214,6 +256,36 @@ String? describeLiveReading(String pid, String raw) {
     '5E' => '${(word / 20).toStringAsFixed(2)} L/h',
     _ => null,
   };
+}
+
+String _fuelSystemStatus(int status) => const {
+  1: 'Circuito aberto, motor ainda frio',
+  2: 'Circuito fechado com realimentação da sonda',
+  4: 'Circuito aberto por carga ou desaceleração',
+  8: 'Circuito aberto por falha do sistema',
+  16: 'Circuito fechado com falha na realimentação',
+}[status] ?? 'Estado 0x${obdHex(status)}';
+
+String _describeMonitors(List<int> data, {required bool sinceClear}) {
+  final ignition = data[1];
+  final compression = (ignition & 0x08) != 0;
+  const continuous = ['Falhas de ignição', 'Sistema de combustível', 'Componentes'];
+  const spark = ['Catalisador', 'Catalisador aquecido', 'Sistema evaporativo',
+    'Ar secundário', 'Refrigerante do A/C', 'Sonda de oxigênio', 'Aquecedor da sonda', 'EGR/VVT'];
+  const diesel = ['Catalisador NMHC', 'Pós-tratamento de NOx', '', 'Pressão de sobrealimentação',
+    '', 'Sensor de escapamento', 'Filtro de partículas', 'EGR/VVT'];
+  final monitors = compression ? diesel : spark;
+  String state(int support, int incomplete, int bit) =>
+      (support & bit) == 0 ? 'Não disponível' :
+      (incomplete & bit) == 0 ? 'Concluído' : 'Não concluído';
+  return [
+    if (sinceClear)
+      'Luz de injeção: ${(data[0] & 0x80) != 0 ? 'acesa' : 'apagada'} • Códigos: ${data[0] & 0x7F}',
+    for (var i = 0; i < continuous.length; i++)
+      '${continuous[i]}: ${state(ignition, ignition >> 4, 1 << i)}',
+    for (var i = 0; i < monitors.length; i++)
+      if (monitors[i].isNotEmpty) '${monitors[i]}: ${state(data[2], data[3], 1 << i)}',
+  ].join('\n');
 }
 
 List<DiagnosticCode> parseFordDtcResponse(String raw, String responseId, String module) {

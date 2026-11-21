@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'obd_v08.dart' as v08;
+import 'trip_totals.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -143,6 +144,10 @@ class _DashboardState extends State<Dashboard> {
   DateTime? lastTripSample;
   double tripKm = 0;
   double estimatedLiters = 0;
+  final tripDays = <String, TripTotals>{};
+  late final Future<SharedPreferences> tripPreferences;
+  double? fuelPrice;
+  int statsPeriod = 0;
   double? fuelPercent;
   double? currentLph;
   double? currentKml;
@@ -168,6 +173,7 @@ class _DashboardState extends State<Dashboard> {
   @override
   void initState() {
     super.initState();
+    tripPreferences = loadTripPreferences();
     loadHistory();
     faultHistoryLoaded = loadFaultHistory();
     loadPanelPreferences();
@@ -295,6 +301,7 @@ class _DashboardState extends State<Dashboard> {
   Future<void> readAllObdData() async {
     if (!connected || busy || discovering) return;
     timer?.cancel();
+    lastTripSample = null;
     setState(() {
       busy = true;
       readingAllData = true;
@@ -354,6 +361,7 @@ class _DashboardState extends State<Dashboard> {
   Future<void> readFordModules() async {
     if (!connected || busy || discovering) return;
     timer?.cancel();
+    lastTripSample = null;
     setState(() {
       busy = true;
       readingFordModules = true;
@@ -444,6 +452,7 @@ class _DashboardState extends State<Dashboard> {
   Future<void> readDiagnosticMode(String mode, String label) async {
     if (!connected || busy || discovering) return;
     timer?.cancel();
+    lastTripSample = null;
     setState(() {
       busy = true;
       readingDiagnosticCodes = true;
@@ -476,6 +485,7 @@ class _DashboardState extends State<Dashboard> {
       if (mounted) setState(() { busy = false; readingDiagnosticCodes = false; diagnosticProgress = ''; });
       if (mounted && connected) {
         timer?.cancel();
+        lastTripSample = null;
         timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
       }
     }
@@ -532,6 +542,7 @@ class _DashboardState extends State<Dashboard> {
       if (!mounted) return;
       setState(() { connected = true; status = 'Conectado'; });
       timer?.cancel();
+      lastTripSample = null;
       setState(() => busy = false);
       await discover();
       await poll();
@@ -545,18 +556,78 @@ class _DashboardState extends State<Dashboard> {
     }
     finally { if (mounted) setState(() { busy = false; connectingBluetooth = false; }); }
   }
+  static String tripDate(DateTime date) => date.toIso8601String().split('T').first;
+
+  Future<SharedPreferences> loadTripPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    fuelPrice = prefs.getDouble('trip_fuel_price');
+    final saved = prefs.getString('trip_days');
+    if (saved != null) {
+      final days = jsonDecode(saved) as Map<String, dynamic>;
+      tripDays.addAll(days.map((day, entry) => MapEntry(day,
+        TripTotals.fromJson(entry as Map<String, dynamic>))));
+    }
+    if (mounted) setState(() {});
+    return prefs;
+  }
+
+  Future<void> editFuelPrice() async {
+    final prefs = await tripPreferences;
+    if (!mounted) return;
+    var input = fuelPrice?.toStringAsFixed(2).replaceAll('.', ',') ?? '';
+    final form = GlobalKey<FormState>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Preço por litro'),
+        content: Form(
+          key: form,
+          child: TextFormField(
+            initialValue: input,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(prefixText: r'R$ ', hintText: '5,99'),
+            onChanged: (value) => input = value,
+            validator: (value) {
+              final text = (value ?? '').trim();
+              final price = double.tryParse(text.replaceAll(',', '.'));
+              return text.isEmpty || (price != null && price.isFinite && price > 0)
+                  ? null : 'Digite um preço maior que zero.';
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () {
+              if (form.currentState!.validate()) Navigator.pop(context, true);
+            },
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+    if (saved != true || !mounted) return;
+    final price = double.tryParse(input.trim().replaceAll(',', '.'));
+    setState(() { fuelPrice = price; lastTripSample = null; });
+    if (price == null) {
+      await prefs.remove('trip_fuel_price');
+    } else {
+      await prefs.setDouble('trip_fuel_price', price);
+    }
+  }
+
   bool polling = false;
   Future<void> poll() async {
     if (!connected || polling || busy || discovering) return;
     polling = true;
     try {
+      List<int>? speedData;
       for (final pid in pids.keys.where((pid) => supported.contains(pid))) {
         final r = await obd.command('01$pid');
+        if (pid == '0D') speedData = v08.parsePidBytes(r, 0x0D, 1);
         if (mounted) setState(() => values[pid] = decodePid(pid, r));
       }
-      final now = DateTime.now();
-      final rawSpeed = values['0D'];
-      final speed = rawSpeed == null ? null : double.tryParse(rawSpeed.replaceAll(' km/h', ''));
+      final speed = speedData?.single.toDouble();
       final rawTemp = values['05'];
       final temp = rawTemp == null ? null : double.tryParse(rawTemp.replaceAll(' °C', ''));
       if (speed != null) {
@@ -569,32 +640,52 @@ class _DashboardState extends State<Dashboard> {
       }
       fuelPercent = supported.contains('2F')
           ? v08.fuelLevelPercent(await obd.command('012F')) : null;
-      if (supported.contains('10')) {
-        final maf = v08.mafGramsPerSecond(await obd.command('0110'));
-        currentLph = v08.fuelLitersPerHour(maf, fuelType);
-        currentKml = v08.instantaneousKmPerLiter(speed, currentLph);
-      } else {
-        currentLph = null;
-        currentKml = null;
+      double? litersPerHour;
+      if (supported.contains('5E')) {
+        final data = v08.parsePidBytes(await obd.command('015E'), 0x5E, 2);
+        if (data != null) litersPerHour = (data[0] * 256 + data[1]) / 20;
       }
-      if (lastTripSample != null && speed != null) {
-        final hours = now.difference(lastTripSample!).inMilliseconds / 3600000.0;
-        if (hours > 0 && hours < 0.02) {
-          tripKm += speed * hours;
-          if (currentLph != null) estimatedLiters += currentLph! * hours;
+      if (litersPerHour == null && supported.contains('10')) {
+        final maf = v08.mafGramsPerSecond(await obd.command('0110'));
+        litersPerHour = v08.fuelLitersPerHour(maf, fuelType);
+      }
+      currentLph = litersPerHour;
+      currentKml = v08.instantaneousKmPerLiter(speed, currentLph);
+      final prefs = await tripPreferences;
+      if (!mounted || !connected || busy) return;
+      final now = DateTime.now();
+      final previous = lastTripSample;
+      lastTripSample = speed == null ? null : now;
+      if (previous != null && speed != null) {
+        final seconds = now.difference(previous).inMilliseconds / 1000;
+        if (seconds > 0 && seconds <= 15) {
+          final midnight = DateTime(now.year, now.month, now.day);
+          final beforeMidnight = previous.isBefore(midnight)
+              ? midnight.difference(previous).inMilliseconds / 1000 : 0.0;
+          void addSample(DateTime day, double duration) {
+            final key = tripDate(day);
+            final sample = TripTotals.sample(duration, speed, litersPerHour, fuelPrice);
+            tripKm += sample.distance;
+            estimatedLiters += sample.liters;
+            tripDays[key] = (tripDays[key] ?? const TripTotals()) + sample;
+          }
+
+          if (beforeMidnight > 0) addSample(previous, beforeMidnight);
+          if (seconds > beforeMidnight) addSample(now, seconds - beforeMidnight);
+          await prefs.setString('trip_days', jsonEncode(tripDays));
         }
       }
-      lastTripSample = now;
       if (mounted) setState(() {});
       if (values.isNotEmpty) sessionReadings.add('${DateTime.now().toIso8601String()} ${jsonEncode(values)}');
       if (sessionReadings.length >= 20) { await record('Amostras sensores: ${jsonEncode(sessionReadings)}'); sessionReadings.clear(); }
-    } catch (e) { report(e); timer?.cancel(); if (mounted) setState(() => connected = false); }
+    } catch (e) { report(e); timer?.cancel(); lastTripSample = null; if (mounted) setState(() => connected = false); }
     finally { polling = false; }
   }
   Future<void> readCodes() => readDiagnosticMode('03', 'Falhas confirmadas');
   Future<void> clearGenericCodes() async {
     if (!connected || busy || discovering) return;
     timer?.cancel();
+    lastTripSample = null;
     setState(() => busy = true);
     try {
       final deadline = DateTime.now().add(const Duration(seconds: 15));
@@ -667,6 +758,7 @@ class _DashboardState extends State<Dashboard> {
 
   Future<void> disconnect() async {
     timer?.cancel();
+    lastTripSample = null;
     if (sessionReadings.isNotEmpty) { await record('Amostras sensores: ${jsonEncode(sessionReadings)}'); sessionReadings.clear(); }
     await obd.disconnect();
     if (mounted) setState(() { connected = false; status = 'Desconectado'; });
@@ -1036,7 +1128,7 @@ class _DashboardState extends State<Dashboard> {
         ExpansionTile(
           tilePadding: EdgeInsets.zero,
           title: Text(reading.key),
-          subtitle: Text(reading.value.split('\n').first, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(reading.value.split('\n').first, maxLines: 2, overflow: TextOverflow.ellipsis),
           children: [SelectableText(reading.value)],
         ),
     ])),
@@ -1157,10 +1249,65 @@ class _DashboardState extends State<Dashboard> {
       style: TextStyle(color: Colors.white60, fontSize: 12)),
   ]);
 
+  String tripDuration(double seconds) {
+    final minutes = (seconds / 60).floor();
+    return '${minutes ~/ 60}:${(minutes % 60).toString().padLeft(2, '0')}';
+  }
+
+  Widget get periodStats {
+    final today = DateTime.now();
+    final todayKey = tripDate(today);
+    final weekStart = tripDate(DateTime(today.year, today.month, today.day - today.weekday + 1));
+    final stats = tripDays.entries.where((entry) => switch (statsPeriod) {
+      0 => entry.key == todayKey,
+      1 => entry.key.compareTo(weekStart) >= 0 && entry.key.compareTo(todayKey) <= 0,
+      _ => true,
+    }).fold(const TripTotals(), (sum, entry) => sum + entry.value);
+
+    String number(double? value, String unit, {int digits = 2}) =>
+        value == null ? 'Indisponível' : '${value.toStringAsFixed(digits).replaceAll('.', ',')} $unit';
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Estatísticas de viagem', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 8),
+      SegmentedButton<int>(
+        segments: const [
+          ButtonSegment(value: 0, label: Text('Hoje')),
+          ButtonSegment(value: 1, label: Text('Semana')),
+          ButtonSegment(value: 2, label: Text('Total')),
+        ],
+        selected: {statsPeriod},
+        onSelectionChanged: (selection) => setState(() => statsPeriod = selection.single),
+      ),
+      const SizedBox(height: 12),
+      if (stats.seconds == 0) const Text('Sem leituras de viagem neste período.') else ...[
+        Text('Distância: ${number(stats.distance, 'km')}'),
+        Text('Velocidade média: ${number(stats.averageSpeed, 'km/h', digits: 1)}'),
+        Text('Combustível usado: ${number(stats.fuelSeconds > 0 ? stats.liters : null, 'L')}'),
+        Text('Consumo médio: ${number(stats.consumption, 'L/100 km', digits: 1)}'),
+        if (stats.fuelCost != null)
+          Text('Custo estimado: R\$ ${number(stats.fuelCost, '').trim()}')
+        else if (stats.pricedLiters > 0)
+          Text('Custo parcial (leituras com preço): R\$ ${number(stats.cost, '').trim()}')
+        else
+          const Text('Custo estimado: Indisponível'),
+        Text('Tempo monitorado: ${tripDuration(stats.seconds)}'),
+        Text('Tempo parado: ${tripDuration(stats.stoppedSeconds)}'),
+      ],
+      TextButton.icon(
+        onPressed: editFuelPrice,
+        icon: const Icon(Icons.local_gas_station_outlined),
+        label: Text(fuelPrice == null ? 'Definir preço por litro' : 'Preço: R\$ ${number(fuelPrice, '/L')}'),
+      ),
+    ]);
+  }
+
   Widget get tripStats => panel(child: Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Text('Estatísticas da sessão', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      periodStats,
+      const Divider(),
+      const Text('Sessão atual', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
       Text('Distância: ' + tripKm.toStringAsFixed(2) + ' km'),
       Text('Combustível (estimado): ' + estimatedLiters.toStringAsFixed(2) + ' L'),
       Text('Consumo médio: ' + (estimatedLiters > 0 ? (tripKm / estimatedLiters).toStringAsFixed(1) + ' km/L' : 'Indisponível')),
@@ -1174,7 +1321,7 @@ class _DashboardState extends State<Dashboard> {
         ],
         onChanged: (value) { if (value != null) setState(() { fuelType = value; currentLph = null; currentKml = null; lastTripSample = null; }); },
       ),
-      const Text('Consumo estimado pelo MAF, não calibrado para misturas flex ou enriquecimento.',
+      const Text('O app usa a vazão de combustível da central quando disponível e estima pelo MAF nos demais casos.',
         style: TextStyle(fontSize: 12, color: Colors.amberAccent)),
       const SizedBox(height: 12),
       const Text('Velocidade • últimas 60 leituras'),

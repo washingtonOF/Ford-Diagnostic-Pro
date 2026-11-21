@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ford_diagnostic_pro/obd_v08.dart';
+import 'package:ford_diagnostic_pro/trip_totals.dart';
 
 void main() {
   test('DTC confirmado', () {
@@ -60,5 +61,35 @@ void main() {
       () => parseFordDtcResponse('7E9 10 0B 59 02 FF 08 05 11\r7E9 22 09 28 72 00 04', '7E9', 'TCM'),
       throwsFormatException,
     );
+  });
+  test('Decodifica as leituras do catalisador, sonda e combustível', () {
+    expect(describeLiveReading('3C', '413C1377'), '458.3 °C');
+    expect(describeLiveReading('14', '41148883'), '0.680 V • Ajuste curto: 2.34 %');
+    expect(describeLiveReading('15', '41153EFF'), '0.310 V • Ajuste curto: indisponível');
+    expect(describeLiveReading('51', '415103'), 'Etanol');
+    expect(describeLiveReading('52', '4152D1'), '81.96 %');
+    expect(describeLiveReading('1C', '411C14'), 'OBDBr-2');
+  });
+  test('Distingue prontidão concluída, pendente e não disponível', () {
+    final report = describeLiveReading('01', '410181370101')!;
+    expect(report, contains('Luz de injeção: acesa • Códigos: 1'));
+    expect(report, contains('Catalisador: Não concluído'));
+    expect(report, contains('Catalisador aquecido: Não disponível'));
+    expect(report, contains('Componentes: Concluído'));
+    expect(describeLiveReading('41', '414100070100'), contains('Catalisador: Concluído'));
+    expect(describeLiveReading('A4', '41A4020005DC'), '1.500');
+  });
+  test('Estatísticas calculam custo e consumo só quando há dados', () {
+    final movement = TripTotals.sample(360, 50, 5, 6);
+    final stopped = TripTotals.sample(360, 0, 1, 6);
+    final blind = TripTotals.sample(360, 50, null, null);
+    final total = TripTotals.fromJson((movement + stopped + blind).toJson());
+    expect(total.distance, 10);
+    expect(total.averageSpeed, closeTo(100 / 3, 0.001));
+    expect(total.consumption, closeTo(12, 0.001));
+    expect(total.fuelCost, closeTo(3.6, 0.001));
+    expect(total.stoppedSeconds, 360);
+    expect((total + TripTotals.sample(360, 20, 2, null)).fuelCost, isNull);
+    expect(blind.consumption, isNull);
   });
 }

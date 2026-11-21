@@ -19,6 +19,10 @@ Em **Diagnóstico → Ler falhas do TCM e do PCM**, o app tenta ler códigos For
 
 Em **Histórico → Histórico de falhas**, busque por código, descrição ou data. As leituras de falhas confirmadas, pendentes e permanentes são gravadas no aparelho, incluindo a releitura após uma limpeza. O histórico de falhas guarda até 1.000 consultas, além dos registros antigos ainda disponíveis no histórico geral. Apagar falhas na central preserva essas consultas no aparelho.
 
+**Painel → Estatísticas de viagem** consolida os dados registrados neste aparelho em Hoje, Semana (desde segunda-feira) e Total. Mostra distância, velocidade média, combustível usado, consumo, custo, tempo monitorado e tempo parado. Defina o preço por litro para calcular o custo do combustível registrado a partir desse momento. O app prefere a vazão anunciada pela central e usa o MAF como estimativa quando disponível. Períodos sem conexão não são contabilizados.
+
+A leitura dos sensores interpreta também sondas de oxigênio, temperaturas do catalisador, pedal, borboleta, etanol, norma OBD e prontidão dos monitores. Se a central anunciar o PID A4 e sinalizar suporte, o app mostra a relação de marcha OBD-II. Marcha numérica e temperatura proprietária do DPS6 ainda precisam de identificadores e fórmulas confirmados no veículo.
+
 ## Preparar no VS Code (Windows)
 
 **Pré-requisitos:** Flutter SDK no PATH, Android SDK, celular Android com depuração USB, cabo USB. Não precisa abrir emulador.
