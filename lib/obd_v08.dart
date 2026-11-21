@@ -215,3 +215,82 @@ String? describeLiveReading(String pid, String raw) {
     _ => null,
   };
 }
+
+List<DiagnosticCode> parseFordDtcResponse(String raw, String responseId, String module) {
+  final payload = <int>[];
+  int? expectedLength;
+  var nextSequence = 1;
+  var complete = false;
+
+  for (final line in raw.toUpperCase().split(RegExp(r'[\r\n>]+'))) {
+    final compact = line.replaceAll(RegExp(r'\s+'), '');
+    if (!compact.startsWith(responseId)) continue;
+    final hex = compact.substring(responseId.length);
+    if (hex.length < 4 || hex.length.isOdd || !RegExp(r'^[0-9A-F]+$').hasMatch(hex)) {
+      throw const FormatException('Quadro CAN inválido.');
+    }
+    final bytes = [
+      for (var i = 0; i < hex.length; i += 2) int.parse(hex.substring(i, i + 2), radix: 16),
+    ];
+    final type = bytes.first >> 4;
+    if (type == 0) {
+      final length = bytes.first & 0x0F;
+      if (expectedLength != null || length == 0 || length > 7 || length >= bytes.length) {
+        throw const FormatException('Tamanho inválido na resposta CAN.');
+      }
+      final frame = bytes.sublist(1, length + 1);
+      // Resposta pendente. A central ainda pode enviar a resposta final no mesmo comando.
+      if (frame.length == 3 && frame[0] == 0x7F && frame[1] == 0x19 && frame[2] == 0x78) continue;
+      payload.addAll(frame);
+      complete = true;
+      break;
+    }
+    if (type == 1 && expectedLength == null) {
+      expectedLength = ((bytes.first & 0x0F) << 8) | bytes[1];
+      if (expectedLength <= 7 || bytes.length < 3) {
+        throw const FormatException('Início de mensagem ISO-TP inválido.');
+      }
+      payload.addAll(bytes.skip(2));
+    } else if (type == 2 && expectedLength != null && (bytes.first & 0x0F) == nextSequence) {
+      payload.addAll(bytes.skip(1));
+      nextSequence = (nextSequence + 1) & 0x0F;
+    } else {
+      throw const FormatException('Sequência ISO-TP inválida.');
+    }
+    if (payload.length >= expectedLength) {
+      payload.removeRange(expectedLength, payload.length);
+      complete = true;
+      break;
+    }
+  }
+
+  if (!complete) {
+    if (expectedLength == null && raw.trim().toUpperCase().contains('NO DATA')) {
+      throw StateError('Sem resposta do módulo.');
+    }
+    throw const FormatException('Resposta do módulo ausente ou incompleta.');
+  }
+  if (payload.length >= 3 && payload[0] == 0x7F && payload[1] == 0x19) {
+    throw StateError('Módulo respondeu, mas recusou a leitura (NRC ${obdHex(payload[2])}).');
+  }
+  if (payload.length < 3 || payload[0] != 0x59 || payload[1] != 0x02 ||
+      (payload.length - 3) % 4 != 0) {
+    throw const FormatException('Resposta de falhas UDS inválida.');
+  }
+
+  return [
+    for (var i = 3; i < payload.length; i += 4)
+      _fordDiagnosticCode(payload[i], payload[i + 1], payload[i + 2], payload[i + 3], module),
+  ];
+}
+
+DiagnosticCode _fordDiagnosticCode(int high, int low, int subtype, int status, String module) {
+  final code = '${'PCBU'[high >> 6]}${(high >> 4) & 3}${obdHex(high & 15)[1]}${obdHex(low)}';
+  final flags = [
+    if ((status & 0x01) != 0) 'Falha presente',
+    if ((status & 0x08) != 0) 'Confirmado',
+    if ((status & 0x04) != 0) 'Pendente',
+    'Status 0x${obdHex(status)}',
+  ];
+  return DiagnosticCode('$code:${obdHex(subtype)}', '$module • ${flags.join(' • ')}', descriptionForDtc(code));
+}

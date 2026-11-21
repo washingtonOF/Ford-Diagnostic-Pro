@@ -129,6 +129,9 @@ class _DashboardState extends State<Dashboard> {
   int faultHistoryLimit = 30;
   final obdReadings = <String, String>{};
   bool readingAllData = false;
+  bool readingFordModules = false;
+  final fordModuleResults = <String, String>{};
+  final fordModuleCodes = <String, List<v08.DiagnosticCode>>{};
   String allDataProgress = '';
   String adapterInfo = 'Não identificado';
   String protocolInfo = 'Não identificado';
@@ -336,6 +339,86 @@ class _DashboardState extends State<Dashboard> {
     } finally {
       if (mounted) {
         setState(() { busy = false; readingAllData = false; });
+        if (connected) timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
+      }
+    }
+  }
+
+  Future<void> setElmOption(String command) async {
+    final response = await obd.command(command);
+    if (!response.toUpperCase().split(RegExp(r'[\r\n>]+')).any((line) => line.trim() == 'OK')) {
+      throw StateError('O ELM327 rejeitou $command: ${response.trim()}');
+    }
+  }
+
+  Future<void> readFordModules() async {
+    if (!connected || busy || discovering) return;
+    timer?.cancel();
+    setState(() {
+      busy = true;
+      readingFordModules = true;
+      fordModuleResults.clear();
+      fordModuleCodes.clear();
+      status = 'Consultando motor e PowerShift…';
+    });
+    var restoreAdapter = false;
+    try {
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (polling && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (!mounted || !connected) return;
+      if (polling) throw StateError('Sensores ocupados. Tente novamente.');
+      final protocol = (await obd.command('ATDPN')).trim().toUpperCase();
+      if (protocol != '6' && protocol != 'A6') {
+        throw StateError('A leitura Ford requer o protocolo CAN de 11 bits a 500 kbit/s. Protocolo ativo: $protocol.');
+      }
+      if (!mounted || !connected) return;
+      restoreAdapter = true;
+      for (final command in ['ATH1', 'ATS1', 'ATCAF1', 'ATCFC1']) {
+        await setElmOption(command);
+      }
+
+      const modules = [
+        ('TCM PowerShift', '7E1', '7E9'),
+        ('PCM Motor', '7E0', '7E8'),
+      ];
+      for (final (module, requestId, responseId) in modules) {
+        if (!mounted || !connected) return;
+        setState(() => fordModuleResults[module] = 'Consultando…');
+        try {
+          await setElmOption('ATCRA$responseId');
+          await setElmOption('ATSH$requestId');
+          final raw = await obd.command('1902FF');
+          final entries = v08.parseFordDtcResponse(raw, responseId, module);
+          if (!mounted) return;
+          setState(() {
+            fordModuleCodes[module] = entries;
+            fordModuleResults[module] = entries.isEmpty
+                ? 'Módulo respondeu. Nenhuma falha retornada.'
+                : '${entries.length} código(s) retornado(s).';
+          });
+          await recordFault(module, entries, raw);
+        } catch (e) {
+          if (mounted) setState(() => fordModuleResults[module] = '$e');
+        }
+      }
+      if (mounted) setState(() => status = 'Consulta dos módulos concluída.');
+    } catch (e) {
+      report(e);
+    } finally {
+      if (restoreAdapter && mounted && connected) {
+        try {
+          // Restaura cabeçalho, filtro e protocolo para a leitura OBD-II genérica.
+          await obd.initialize();
+        } catch (e) {
+          if (mounted) setState(() => connected = false);
+          report(e);
+          try { await obd.disconnect(); } catch (_) {}
+        }
+      }
+      if (mounted) {
+        setState(() { busy = false; readingFordModules = false; });
         if (connected) timer = Timer.periodic(const Duration(seconds: 3), (_) => poll());
       }
     }
@@ -936,7 +1019,7 @@ class _DashboardState extends State<Dashboard> {
         label: const Text('Apagar falhas genéricas (04)'),
       ),
       const SizedBox(height: 8),
-      const Text('Códigos 03, 07 e 0A exibidos e armazenados. Acesso aprimorado ao TCM ainda não disponível.',
+      const Text('Códigos genéricos 03, 07 e 0A exibidos e armazenados.',
         style: TextStyle(color: Colors.white60, fontSize: 12)),
     ])),
     sectionTitle('Dados OBD-II da central', Icons.sensors),
@@ -957,16 +1040,35 @@ class _DashboardState extends State<Dashboard> {
           children: [SelectableText(reading.value)],
         ),
     ])),
-    sectionTitle('PowerShift DPS6 / TCM', Icons.settings),
-    panel(child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Monitoramento avançado Ford — em desenvolvimento',
-        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent)),
-      SizedBox(height: 8),
-      Text('Leitura específica de TCM, temperatura da transmissão, '
-        'atuadores, adaptações e procedimentos de aprendizagem ainda NÃO estão disponíveis.'),
-      SizedBox(height: 8),
-      Text('Não execute comandos de programação ou testes ativos com adaptador não validado.',
-        style: TextStyle(color: Colors.white70)),
+    sectionTitle('Falhas do PowerShift e do motor', Icons.car_repair),
+    panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      FilledButton.icon(
+        onPressed: connected && !busy && !discovering ? readFordModules : null,
+        icon: const Icon(Icons.manage_search),
+        label: const Text('Ler falhas do TCM e do PCM'),
+      ),
+      const Text('Consulta Ford via CAN. A resposta depende do veículo e do ELM327.'),
+      if (readingFordModules) const LinearProgressIndicator(),
+      if (fordModuleResults.isEmpty && status.startsWith('Erro na comunicação:')) Text(status),
+      for (final result in fordModuleResults.entries) ...[
+        const Divider(),
+        Text(result.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(result.value),
+        for (final entry in fordModuleCodes[result.key] ?? const <v08.DiagnosticCode>[])
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(entry.code),
+            subtitle: Text('${entry.description}\n${entry.status}'),
+            trailing: IconButton(
+              tooltip: 'Pesquisar no Google',
+              icon: const Icon(Icons.open_in_new),
+              onPressed: () async {
+                final opened = await launchUrl(Uri.parse(entry.googleUrl), mode: LaunchMode.externalApplication);
+                if (!opened) report('Não foi possível abrir o navegador.');
+              },
+            ),
+          ),
+      ],
     ])),
     sectionTitle('Catálogo de módulos Ford', Icons.memory),
     panel(child: Column(children: [
