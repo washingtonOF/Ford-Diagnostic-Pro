@@ -3,7 +3,6 @@ import 'obd_v08.dart' as v08;
 import 'trip_totals.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -107,8 +106,26 @@ class FordApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Ford Diagnostic Pro', debugShowCheckedModeBanner: false,
-    theme: ThemeData(useMaterial3: true, brightness: Brightness.dark,
-      colorSchemeSeed: const Color(0xFF4BA3FF), scaffoldBackgroundColor: const Color(0xFF101A2A)),
+    theme: ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF46D6D0),
+        brightness: Brightness.dark,
+        surface: const Color(0xFF101B26),
+      ),
+      scaffoldBackgroundColor: const Color(0xFF0A121B),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF0A121B),
+        scrolledUnderElevation: 0,
+        titleTextStyle: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w700),
+      ),
+      navigationBarTheme: const NavigationBarThemeData(
+        backgroundColor: Color(0xFF101B26),
+        indicatorColor: Color(0xFF234B52),
+        height: 68,
+        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+      ),
+    ),
     home: const Dashboard(),
   );
 }
@@ -766,19 +783,22 @@ class _DashboardState extends State<Dashboard> {
   @override void dispose() { timer?.cancel(); obd.disconnect(); super.dispose(); }
   Widget sectionTitle(String title, IconData icon) => Padding(
     padding: const EdgeInsets.only(top: 18, bottom: 8),
-    child: Row(children: [Icon(icon, color: const Color(0xFF38C7FF)),
+    child: Row(children: [Icon(icon, color: const Color(0xFF62DAD3)),
       const SizedBox(width: 9), Expanded(child: Text(title,
         style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)))]));
 
-  Widget panel({required Widget child}) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: const Color(0xFF172840),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: const Color(0xFF294764))),
-    child: child);
-
+  Widget panel({required Widget child}) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Material(
+      color: const Color(0xFF101B26),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFF243747)),
+      ),
+      child: Padding(padding: const EdgeInsets.all(14), child: child),
+    ),
+  );
 
   Widget get connectionPanel => panel(child: Column(
     crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -834,11 +854,11 @@ class _DashboardState extends State<Dashboard> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF14263E),
+        color: const Color(0xFF111E29),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF275078))),
+        border: Border.all(color: const Color(0xFF243747))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: const Color(0xFF42CFFF), size: 26),
+        Icon(icon, color: const Color(0xFF62DAD3), size: 26),
         const SizedBox(height: 12),
         Text(available ? raw : '—', maxLines: 1,
           style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
@@ -927,48 +947,47 @@ class _DashboardState extends State<Dashboard> {
   );
 
   Widget get overview => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [Color(0xFF1266A8), Color(0xFF102844), Color(0xFF0D1829)]),
-        border: Border.all(color: const Color(0xFF3179A6)),
+    ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: ColoredBox(
+        color: const Color(0xFF121F2C),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (showVehicleBanner)
+            AspectRatio(
+              aspectRatio: 2,
+              child: Image.asset(
+                'assets/images/fiesta_service_studio.jpg',
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Image.asset(
+                  'assets/images/ford_diagnostic_banner.png', fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('New Fiesta SE 1.6',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+              const Text('2013/2014 · PowerShift DPS6',
+                style: TextStyle(color: Color(0xFFB6C7D5))),
+              const SizedBox(height: 12),
+              if (connected)
+                const Row(children: [
+                  Icon(Icons.bluetooth_connected, color: Color(0xFF62DAD3), size: 18),
+                  SizedBox(width: 8),
+                  Flexible(child: Text('ELM327 conectado')),
+                ])
+              else
+                FilledButton.tonalIcon(
+                  onPressed: () => setState(() => selectedTab = 1),
+                  icon: const Icon(Icons.bluetooth),
+                  label: const Text('Conectar ELM327'),
+                ),
+            ]),
+          ),
+        ]),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (showVehicleBanner)
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(23)),
-            child: Image.asset('assets/images/ford_diagnostic_banner.png',
-              width: double.infinity, height: 172, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const SizedBox(height: 100,
-                child: Center(child: Icon(Icons.directions_car, size: 65))))),
-        Padding(padding: const EdgeInsets.all(16), child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('SEU VEÍCULO', style: TextStyle(
-              color: Color(0xFF7DD6FF), letterSpacing: 2, fontSize: 11,
-              fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            const Text('New Fiesta SE 1.6', style: TextStyle(
-              fontSize: 23, fontWeight: FontWeight.w900)),
-            const Text('2013/2014  •  PowerShift DPS6',
-              style: TextStyle(color: Colors.white70)),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(color: const Color(0xFF142F49),
-                borderRadius: BorderRadius.circular(12)),
-              child: Row(children: [
-                Icon(connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                  color: connected ? const Color(0xFF3AE3A4) : Colors.amber),
-                const SizedBox(width: 9),
-                Expanded(child: Text(connected
-                  ? 'ELM327 conectado • dados disponíveis'
-                  : 'ELM327 desconectado • conecte para ler dados',
-                  style: const TextStyle(fontSize: 12))),
-              ])),
-          ])),
-      ]),
     ),
     const SizedBox(height: 14),
     Row(children: [
@@ -980,20 +999,7 @@ class _DashboardState extends State<Dashboard> {
         label: Text(editingPanel ? 'Fechar' : 'Personalizar')),
     ]),
     if (editingPanel) panelEditor else sensorGrid,
-    const SizedBox(height: 8),
-    Row(children: [
-      Expanded(child: OutlinedButton.icon(
-        onPressed: () => setState(() => selectedTab = 1),
-        icon: const Icon(Icons.bluetooth), label: const Text('Conectar'))),
-      const SizedBox(width: 8),
-      Expanded(child: FilledButton.icon(
-        onPressed: () => setState(() => selectedTab = 2),
-        icon: const Icon(Icons.car_repair), label: const Text('Diagnóstico'))),
-    ]),
-    const SizedBox(height: 10),
-    const Text('Indicadores exibem somente leituras reais do adaptador OBD2. '
-      'Sem conexão, os valores ficam vazios.',
-      style: TextStyle(fontSize: 12, color: Colors.white60)),
+    const SizedBox(height: 14),
   ]);
 
   Widget get settingsView => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1040,7 +1046,40 @@ class _DashboardState extends State<Dashboard> {
   ]);
 
   Widget get diagnostics => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    sectionTitle('Diagnóstico do motor', Icons.car_repair),
+    sectionTitle('Falhas do PowerShift e do motor', Icons.car_repair),
+    panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      FilledButton.icon(
+        onPressed: connected && !busy && !discovering ? readFordModules : null,
+        icon: const Icon(Icons.manage_search),
+        label: const Text('Ler falhas do TCM e do PCM'),
+      ),
+      if (!connected) const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text('Conecte o ELM327 para consultar o câmbio e o motor.'),
+      ),
+      if (readingFordModules) const LinearProgressIndicator(),
+      if (fordModuleResults.isEmpty && status.startsWith('Erro na comunicação:')) Text(status),
+      for (final result in fordModuleResults.entries) ...[
+        const Divider(),
+        Text(result.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(result.value),
+        for (final entry in fordModuleCodes[result.key] ?? const <v08.DiagnosticCode>[])
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(entry.code),
+            subtitle: Text('${entry.description}\n${entry.status}'),
+            trailing: IconButton(
+              tooltip: 'Pesquisar no Google',
+              icon: const Icon(Icons.open_in_new),
+              onPressed: () async {
+                final opened = await launchUrl(Uri.parse(entry.googleUrl), mode: LaunchMode.externalApplication);
+                if (!opened) report('Não foi possível abrir o navegador.');
+              },
+            ),
+          ),
+      ],
+    ])),
+    sectionTitle('Falhas OBD-II genéricas', Icons.fact_check_outlined),
     panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       FilledButton.icon(
         onPressed: connected && !busy && !polling && !discovering ? readCodes : null,
@@ -1131,36 +1170,6 @@ class _DashboardState extends State<Dashboard> {
           subtitle: Text(reading.value.split('\n').first, maxLines: 2, overflow: TextOverflow.ellipsis),
           children: [SelectableText(reading.value)],
         ),
-    ])),
-    sectionTitle('Falhas do PowerShift e do motor', Icons.car_repair),
-    panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      FilledButton.icon(
-        onPressed: connected && !busy && !discovering ? readFordModules : null,
-        icon: const Icon(Icons.manage_search),
-        label: const Text('Ler falhas do TCM e do PCM'),
-      ),
-      const Text('Consulta Ford via CAN. A resposta depende do veículo e do ELM327.'),
-      if (readingFordModules) const LinearProgressIndicator(),
-      if (fordModuleResults.isEmpty && status.startsWith('Erro na comunicação:')) Text(status),
-      for (final result in fordModuleResults.entries) ...[
-        const Divider(),
-        Text(result.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-        Text(result.value),
-        for (final entry in fordModuleCodes[result.key] ?? const <v08.DiagnosticCode>[])
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(entry.code),
-            subtitle: Text('${entry.description}\n${entry.status}'),
-            trailing: IconButton(
-              tooltip: 'Pesquisar no Google',
-              icon: const Icon(Icons.open_in_new),
-              onPressed: () async {
-                final opened = await launchUrl(Uri.parse(entry.googleUrl), mode: LaunchMode.externalApplication);
-                if (!opened) report('Não foi possível abrir o navegador.');
-              },
-            ),
-          ),
-      ],
     ])),
     sectionTitle('Catálogo de módulos Ford', Icons.memory),
     panel(child: Column(children: [
@@ -1254,6 +1263,23 @@ class _DashboardState extends State<Dashboard> {
     return '${minutes ~/ 60}:${(minutes % 60).toString().padLeft(2, '0')}';
   }
 
+  Widget metricTile(String label, String value, IconData icon) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFF152532),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, color: const Color(0xFF62DAD3), size: 19),
+      const SizedBox(height: 8),
+      Text(value, style: const TextStyle(
+        fontSize: 18, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()],
+      )),
+      const SizedBox(height: 4),
+      Text(label, style: const TextStyle(color: Color(0xFFB6C7D5), fontSize: 12)),
+    ]),
+  );
+
   Widget get periodStats {
     final today = DateTime.now();
     final todayKey = tripDate(today);
@@ -1280,20 +1306,27 @@ class _DashboardState extends State<Dashboard> {
         onSelectionChanged: (selection) => setState(() => statsPeriod = selection.single),
       ),
       const SizedBox(height: 12),
-      if (stats.seconds == 0) const Text('Sem leituras de viagem neste período.') else ...[
-        Text('Distância: ${number(stats.distance, 'km')}'),
-        Text('Velocidade média: ${number(stats.averageSpeed, 'km/h', digits: 1)}'),
-        Text('Combustível usado: ${number(stats.fuelSeconds > 0 ? stats.liters : null, 'L')}'),
-        Text('Consumo médio: ${number(stats.consumption, 'L/100 km', digits: 1)}'),
-        if (stats.fuelCost != null)
-          Text('Custo estimado: R\$ ${number(stats.fuelCost, '').trim()}')
-        else if (stats.pricedLiters > 0)
-          Text('Custo parcial (leituras com preço): R\$ ${number(stats.cost, '').trim()}')
-        else
-          const Text('Custo estimado: Indisponível'),
-        Text('Tempo monitorado: ${tripDuration(stats.seconds)}'),
-        Text('Tempo parado: ${tripDuration(stats.stoppedSeconds)}'),
-      ],
+      if (stats.seconds == 0)
+        const Text('Sem leituras de viagem neste período.')
+      else
+        LayoutBuilder(builder: (context, constraints) {
+          final width = constraints.maxWidth < 280 ? constraints.maxWidth : (constraints.maxWidth - 10) / 2;
+          final metrics = [
+            ('Distância', number(stats.distance, 'km'), Icons.route_outlined),
+            ('Velocidade média', number(stats.averageSpeed, 'km/h', digits: 1), Icons.speed),
+            ('Combustível usado', number(stats.fuelSeconds > 0 ? stats.liters : null, 'L'), Icons.local_gas_station_outlined),
+            ('Consumo médio', number(stats.consumption, 'L/100 km', digits: 1), Icons.insights),
+            if (stats.fuelCost != null || stats.pricedLiters > 0)
+              (stats.fuelCost != null ? 'Custo estimado' : 'Custo parcial',
+                'R\$ ${number(stats.fuelCost ?? stats.cost, '').trim()}', Icons.payments_outlined),
+            ('Tempo monitorado', tripDuration(stats.seconds), Icons.timer_outlined),
+            ('Tempo parado', tripDuration(stats.stoppedSeconds), Icons.pause_circle_outline),
+          ];
+          return Wrap(spacing: 10, runSpacing: 10, children: [
+            for (final (label, value, icon) in metrics)
+              SizedBox(width: width, child: metricTile(label, value, icon)),
+          ]);
+        }),
       TextButton.icon(
         onPressed: editFuelPrice,
         icon: const Icon(Icons.local_gas_station_outlined),
@@ -1301,6 +1334,22 @@ class _DashboardState extends State<Dashboard> {
       ),
     ]);
   }
+
+  Widget tripChart(String title, List<double> samples) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 6),
+      if (samples.length < 2)
+        const Text('Aguardando leituras.', style: TextStyle(color: Color(0xFFB6C7D5)))
+      else
+        SizedBox(
+          height: 100,
+          width: double.infinity,
+          child: CustomPaint(painter: _V08LinePainter(samples)),
+        ),
+    ],
+  );
 
   Widget get tripStats => panel(child: Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1324,82 +1373,16 @@ class _DashboardState extends State<Dashboard> {
       const Text('O app usa a vazão de combustível da central quando disponível e estima pelo MAF nos demais casos.',
         style: TextStyle(fontSize: 12, color: Colors.amberAccent)),
       const SizedBox(height: 12),
-      const Text('Velocidade • últimas 60 leituras'),
-      SizedBox(height: 100, child: CustomPaint(
-        painter: _V08LinePainter(speedSamples), child: const SizedBox.expand())),
-      const SizedBox(height: 8),
-      const Text('Temperatura do motor • últimas 60 leituras'),
-      SizedBox(height: 100, child: CustomPaint(
-        painter: _V08LinePainter(temperatureSamples), child: const SizedBox.expand())),
+      tripChart('Velocidade', speedSamples),
+      const SizedBox(height: 12),
+      tripChart('Temperatura do motor', temperatureSamples),
     ],
   ));
-
-  Widget get v08Artwork => panel(child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text('Identidade visual V0.8', style: TextStyle(fontWeight: FontWeight.bold)),
-      const SizedBox(height: 8),
-      Center(child: SizedBox(
-        height: 170,
-        child: SvgPicture.asset(
-          'assets/design_v08/splash_preview.svg',
-          fit: BoxFit.contain,
-          placeholderBuilder: (_) => const Icon(Icons.directions_car, size: 70),
-        ),
-      )),
-      const Text('Arte vetorial de referência integrada ao aplicativo.',
-        style: TextStyle(fontSize: 12, color: Colors.white70)),
-    ],
-  ));
-
-  Widget get v08Shortcuts => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    sectionTitle('Acesso rápido • V0.8', Icons.grid_view_rounded),
-    LayoutBuilder(builder: (context, c) {
-      final w = (c.maxWidth - 12) / 2;
-      final items = <(String, IconData, int)>[
-        ('Conectar ELM327', Icons.bluetooth_connected, 1),
-        ('Códigos de falha', Icons.car_repair, 2),
-        ('Sensores em tempo real', Icons.monitor_heart, 0),
-        ('Módulos Ford', Icons.memory, 2),
-        ('Estatísticas de viagem', Icons.route, 0),
-        ('Histórico e relatórios', Icons.description_outlined, 3),
-      ];
-      return Wrap(spacing: 12, runSpacing: 12, children: [
-        for (final item in items) SizedBox(width: w, child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: () => setState(() => selectedTab = item.$3),
-          child: Container(
-            height: 116, padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFF172840),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFF295C8D))),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Icon(item.$2, color: const Color(0xFF42CFFF), size: 30),
-              const Spacer(),
-              Text(item.$1, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w600)),
-            ]),
-          ),
-        )),
-      ]);
-    }),
-    sectionTitle('Indicadores adicionais • V0.8', Icons.analytics_outlined),
-    panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Combustível: ' + (connected && fuelPercent != null ? fuelPercent!.toStringAsFixed(1) + ' %' : 'Indisponível')),
-      const SizedBox(height: 6),
-      Text('Distância percorrida: ' + (connected ? tripKm.toStringAsFixed(2) + ' km (estimada)' : 'Indisponível')),
-      const SizedBox(height: 6),
-      Text('Consumo instantâneo: ' + (connected && currentKml != null ? currentKml!.toStringAsFixed(1) + ' km/L (estimado)' : 'Indisponível')),
-      const SizedBox(height: 6),
-      const Text('Temperatura PowerShift: indisponível • PID do TCM não validado',
-        style: TextStyle(color: Colors.amberAccent)),
-    ])),
-  ]);
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Ford Diagnostic Pro'),
+      title: Text(const ['Ford Diagnostic Pro', 'Conexão', 'Diagnóstico', 'Histórico', 'Ajustes'][selectedTab]),
       actions: [
         Padding(padding: const EdgeInsets.only(right: 14),
           child: Icon(connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
@@ -1407,18 +1390,13 @@ class _DashboardState extends State<Dashboard> {
       ]),
     body: ListView(
       key: ValueKey('tela_$selectedTab'),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-      if (selectedTab == 0) ...[overview, v08Shortcuts, tripStats, v08Artwork],
+      if (selectedTab == 0) ...[overview, tripStats],
       if (selectedTab == 1) connectionPanel,
       if (selectedTab == 2) diagnostics,
       if (selectedTab == 3) historyView,
       if (selectedTab == 4) settingsView,
-      const SizedBox(height: 18),
-      const Text('V0.8 • DIAGNÓSTICO OBD-II GENÉRICO\n'
-        'Limpeza genérica 04 com confirmação; testes ativos, adaptações e programação bloqueados.',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.white54, fontSize: 11)),
     ]),
     bottomNavigationBar: NavigationBar(
       selectedIndex: selectedTab,
@@ -1439,6 +1417,11 @@ class _V08LinePainter extends CustomPainter {
   _V08LinePainter(this.data);
   @override void paint(Canvas canvas, Size size) {
     if (data.length < 2) return;
+    final grid = Paint()..color = const Color(0xFF263B49);
+    for (var row = 1; row <= 3; row++) {
+      final y = size.height * row / 4;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
     final minVal = data.reduce(math.min);
     final maxVal = data.reduce(math.max);
     final range = math.max(1.0, maxVal - minVal);
@@ -1449,7 +1432,7 @@ class _V08LinePainter extends CustomPainter {
       if (i == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
     }
     canvas.drawPath(path, Paint()
-      ..color = const Color(0xFF42CFFF)
+      ..color = const Color(0xFF62DAD3)
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke);
   }

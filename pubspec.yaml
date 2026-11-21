@@ -19,6 +19,7 @@ dev_dependencies:
 flutter:
   assets:
     - assets/images/ford_diagnostic_banner.png
+    - assets/images/fiesta_service_studio.jpg
     - assets/design_v08/splash_preview.svg
     - assets/design_v08/dashboard_preview.svg
   uses-material-design: true
