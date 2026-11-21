@@ -15,10 +15,13 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.UUID
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
-    private var socket: BluetoothSocket? = null
+    private val connectionTimeouts = Executors.newSingleThreadScheduledExecutor()
+    @Volatile private var socket: BluetoothSocket? = null
     private val uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private val channelName = "ford_diagnostic/obd"
     private val requestCode = 2001
@@ -62,21 +65,33 @@ class MainActivity : FlutterActivity() {
                         val address = args?.get("address") as? String ?: error("Endereço ausente")
                         socket?.close()
                         val device = adapter()?.getRemoteDevice(address) ?: error("Bluetooth indisponível")
-                        // Sem varredura: conexao com dispositivo ja pareado
+                        val candidate = device.createRfcommSocketToServiceRecord(uuid)
+                        socket = candidate
+                        val completed = AtomicBoolean(false)
+                        val timeout = connectionTimeouts.schedule({
+                            if (completed.compareAndSet(false, true)) {
+                                try { candidate.close() } catch (_: IOException) {}
+                            }
+                        }, 20, TimeUnit.SECONDS)
                         try {
-                            socket = device.createRfcommSocketToServiceRecord(uuid)
-                            socket!!.connect()
-                        } catch (first: IOException) {
-                            try { socket?.close() } catch (_: Exception) {}
+                            candidate.connect()
+                            if (!completed.compareAndSet(false, true)) {
+                                throw IOException("Tempo esgotado ao conectar ao ELM327")
+                            }
+                        } catch (failure: IOException) {
+                            try { candidate.close() } catch (_: IOException) {}
                             socket = null
-                            throw IOException("Falha ao conectar ao ELM327 pareado: ${first.message}")
+                            throw IOException("Falha ao conectar ao ELM327 pareado: ${failure.message}", failure)
+                        } finally {
+                            completed.set(true)
+                            timeout.cancel(false)
                         }
                         null
                     }
                     "disconnect" -> { socket?.close(); socket = null; null }
                     "command" -> {
                         val command = args?.get("command") as? String ?: error("Comando ausente")
-                        require(Regex("^(AT[A-Z0-9]*|01[0-9A-F]{2}|0[347A]|0902)$").matches(command)) { "Comando não permitido" }
+                        require(Regex("^(AT[A-Z0-9]*|0[169][0-9A-F]{2}|02[0-9A-F]{2}00|0[347A])$").matches(command)) { "Comando não permitido" }
                         send(command)
                     }
                     else -> error("Método desconhecido: $method")
@@ -112,6 +127,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         try { socket?.close() } catch (_: Exception) {}
         executor.shutdownNow()
+        connectionTimeouts.shutdownNow()
         super.onDestroy()
     }
 }
